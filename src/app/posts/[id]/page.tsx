@@ -1,17 +1,23 @@
 import { getPostData, getSortedPostsData } from '@/lib/posts';
 import { MDXRemote } from 'next-mdx-remote/rsc'; // [핵심] RSC 버전 사용
 import { Callout } from '@/components/mdx/Callout'; // 커스텀 컴포넌트
+import { Steps, Step } from '@/components/mdx/Steps';
+import { Kbd } from '@/components/mdx/Kbd';
+import { Details } from '@/components/mdx/Details';
+
 import type { Metadata } from 'next';
 
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 
-// MDX에서 사용할 컴포넌트 매핑
 const components = {
   Callout,
+  Steps,
+  Step,
+  Kbd,
+  Details,
 };
 
-// ... generateStaticParams, generateMetadata는 기존과 동일 ...
 export async function generateStaticParams() {
   const posts = getSortedPostsData();
   return posts.map((post) => ({ id: post.id }));
