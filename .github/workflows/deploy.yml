@@ -40,7 +40,7 @@ jobs:
           cache: "pnpm" # 또는 yarn, pnpm 사용 시 변경
 
       - name: Install dependencies
-        run: pnpm ci # package-lock.json을 기준으로 엄격하게 설치
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm run build
