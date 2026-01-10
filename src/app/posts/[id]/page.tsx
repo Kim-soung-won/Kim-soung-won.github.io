@@ -1,14 +1,11 @@
 import { getPostData, getSortedPostsData } from '@/lib/posts';
-import { MDXRemote } from 'next-mdx-remote/rsc'; // [핵심] RSC 버전 사용
-import { Callout } from '@/components/mdx/Callout'; // 커스텀 컴포넌트
-import { Steps, Step } from '@/components/mdx/Steps';
-import { Kbd } from '@/components/mdx/Kbd';
-import { Details } from '@/components/mdx/Details';
+import { MDXRemote } from 'next-mdx-remote/rsc';
 
 import type { Metadata } from 'next';
 
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { Callout, Details, Kbd, Step, Steps, Strong } from '@/components/mdx';
 
 const components = {
   Callout,
@@ -16,6 +13,7 @@ const components = {
   Step,
   Kbd,
   Details,
+  Strong
 };
 
 export async function generateStaticParams() {
