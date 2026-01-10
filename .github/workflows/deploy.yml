@@ -28,6 +28,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9 # 프로젝트에서 사용하는 pnpm 버전과 맞추세요 (보통 8 또는 9)
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
