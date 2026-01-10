@@ -1,0 +1,60 @@
+---
+title: "MDX & TanStack Style Test"
+date: "2025-01-10"
+description: "커스텀 컴포넌트, 테이블, 코드 블록 등 TanStack Query 스타일을 테스트합니다."
+---
+
+MDX를 도입하여 **React 컴포넌트**를 마크다운 문서 내에서 직접 사용할 수 있게 되었습니다. 
+이 문서는 스타일 가이드 겸 테스트 페이지입니다.
+
+## 1. Custom Callouts (커스텀 컴포넌트)
+
+우리가 만든 `<Callout />` 컴포넌트를 직접 사용해 봅니다.
+
+<Callout type="info" title="알아두세요">
+  이것은 MDX로 렌더링된 **Info** Callout입니다. 강조하고 싶은 정보가 있을 때 사용하세요.
+</Callout>
+
+<Callout type="warning" title="주의사항">
+  이 기능은 아직 실험적입니다. 프로덕션 환경에서 사용할 때 주의하세요.
+</Callout>
+
+<Callout type="success" title="성공">
+  배포가 성공적으로 완료되었습니다! 모든 시스템이 정상 작동 중입니다.
+</Callout>
+
+<Callout type="danger" title="에러 발생">
+  치명적인 오류가 발생했습니다. 로그를 확인해주세요.
+</Callout>
+
+## 2. GitHub Flavored Tables
+
+`remark-gfm` 플러그인 덕분에 GitHub 스타일의 테이블을 사용할 수 있습니다.
+
+| 기능 | 상태 | 설명 |
+| :--- | :---: | :--- |
+| 다크 모드 | ✅ | 시스템 설정 및 토글 지원 |
+| MDX 지원 | ✅ | React 컴포넌트 임베딩 가능 |
+| 검색 기능 | 🚧 | 개발 예정 |
+| 댓글 시스템 | ❌ | 미지원 |
+
+## 3. Code Blocks & Highlighting
+
+TanStack 스타일의 어두운 테마가 적용된 코드 블록입니다.
+
+```tsx
+// src/components/Example.tsx
+import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <button 
+      onClick={() => setCount(prev => prev + 1)}
+      className="bg-red-500 text-white px-4 py-2 rounded"
+    >
+      Count is {count}
+    </button>
+  );
+}
