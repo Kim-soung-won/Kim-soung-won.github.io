@@ -1,0 +1,139 @@
+---
+title: "Java Test코드 작성\n @Transactional\n 테스트 격리의 딜레마"
+date: "2026-01-11"
+description: "테스트 격리를 위해 사용하는 @Transactional이 프로덕션 환경과의 불일치를 초래하는 이유와, tearDown을 통한 데이터 클렌징이 필요한 순간을 분석한다."
+---
+
+Java와 Spring으로 테스트 코드를 작성할 때, 우리는 아주 자연스럽게 테스트 클래스 상단에 `@Transactional`을 붙이곤 한다.
+
+이 어노테이션 하나만 있으면 테스트가 끝난 후 **자동으로 Rollback**이 되므로, 데이터베이스에 쓰레기 데이터가 남지 않고 각 테스트의 <Strong>독립성(Isolation)</Strong>을 아주 쉽게 보장받을 수 있기 때문이다.
+
+하지만 이 편리함 뒤에는 <Strong>"거짓된 초록불(Green Light)"</Strong>이라는 치명적인 함정이 숨어 있다.
+
+## @Transactional의 달콤한 유혹
+
+우리가 테스트 클래스에 `@Transactional`을 습관적으로 사용하는 이유는 명확하다.
+
+1. <Strong>편리함:</Strong> `setUp`이나 `tearDown`에서 데이터를 일일이 지울 필요가
+   없다.
+2. <Strong>속도:</Strong> 실제로 DB에 커밋하지 않고 롤백하므로, 테이블을 Truncate하거나
+   `DELETE` 쿼리를 날리는 I/O 비용보다 빠를 수 있다.
+
+하지만 이 "테스트 환경만의 트랜잭션"은 **실제 프로덕션 코드와 다른 환경**을 만들어낸다.
+
+<Callout type="warning" title="핵심 문제">
+  테스트 클래스에 `@Transactional`을 붙이면, **실제 비즈니스 로직(Service)에
+  트랜잭션 처리가 누락되어 있어도 테스트가 통과**하는 참사가 발생한다.
+</Callout>
+
+---
+
+## 함정 1: 프로덕션 코드의 @Transactional 누락 감지 불가
+
+가장 흔하면서도 위험한 시나리오다. 개발자가 실수로 서비스 레이어에 `@Transactional`을 붙이지 않았다고 가정해 보자.
+
+<Steps>
+  <Step title="실제 상황 (Production)">
+    서비스 코드에 `@Transactional`이 없으므로, 변경 감지(Dirty Checking)가 동작하지 않아 `update` 쿼리가 나가지 않거나, 예외 발생 시 부분만 저장되는 데이터 정합성 문제가 발생한다. <Strong>(치명적 버그)</Strong>
+  </Step>
+
+  <Step title="테스트 상황 (Test)">
+    테스트 클래스 상단에 `@Transactional`이 붙어있다. 이 트랜잭션은 테스트 시작부터 끝까지 유지된다.
+    
+    즉, **서비스 코드에 트랜잭션이 없어도 부모(테스트)의 트랜잭션을 전파(Propagation)받아 정상적으로 동작**해버린다.
+  </Step>
+</Steps>
+
+결국 개발자는 **"테스트 통과했으니 배포하자!"**라고 생각하지만, 배포 후 런타임 에러를 마주하게 된다.
+
+## 함정 2: 영속성 컨텍스트(Persistence Context)의 생명주기 불일치
+
+JPA를 사용할 때 이 문제는 더 두드러진다. 특히 <Strong>지연 로딩(Lazy Loading)</Strong>과 관련된 문제다.
+
+```java
+// Service Code
+public void logic() {
+    Member member = memberRepository.findById(1L);
+    // @Transactional이 없다면 여기서 영속성 컨텍스트가 종료됨
+    member.getTeam().getName(); // Lazy Loading 시도 -> 예외 발생! (LazyInitializationException)
+}
+
+```
+
+- <Strong>프로덕션:</Strong> 트랜잭션이 없다면 `findById` 이후 세션이 닫혀서, `getTeam()`을
+  호출할 때 `LazyInitializationException`이 발생한다.
+- <Strong>테스트(@Transactional):</Strong> 테스트 메서드가 끝날 때까지 영속성 컨텍스트가
+  살아있다. 지연 로딩이 아주 잘 동작한다. **즉, 잘못된 코드를 성공으로 둔갑시킨다.**
+
+---
+
+## 해결책: tearDown(@AfterEach)을 통한 수동 삭제
+
+이러한 "환경의 불일치"를 막기 위해, 통합 테스트에서는 `@Transactional`을 제거하고 **데이터 클렌징 작업을 수동으로 수행**하는 것이 권장된다.
+
+이 방식을 사용하면 테스트 환경을 실제 프로덕션 환경과 가장 유사하게(Clean하게) 유지할 수 있다.
+
+### 구현 예시
+
+<Callout type="info" title="Spring Boot Test">
+  `@AfterEach`를 사용하여 매 테스트가 끝날 때마다 저장된 데이터를 물리적으로
+  삭제한다.
+</Callout>
+
+```java
+@SpringBootTest
+class MemberServiceTest {
+
+    @Autowired MemberRepository memberRepository;
+    @Autowired MemberService memberService;
+
+    @AfterEach // tearDown
+    void tearDown() {
+        // 모든 데이터를 삭제하여 다음 테스트에 영향을 주지 않도록 한다
+        memberRepository.deleteAllInBatch();
+    }
+
+    @Test
+    void 회원가입_테스트() {
+        // Given
+        Member member = new Member("userA");
+
+        // When
+        // 만약 join 내부에 @Transactional이 없다면?
+        // -> 여기서 바로 예외가 터지거나 DB 반영이 안 되어 테스트가 실패한다 (버그 조기 발견!)
+        memberService.join(member);
+
+        // Then
+        assertThat(memberRepository.findAll()).hasSize(1);
+    }
+}
+
+```
+
+### tearDown 방식의 장점
+
+1. <Strong>거짓 양성 제거:</Strong> 프로덕션 코드에 `@Transactional`이 없으면 테스트가
+   정직하게 실패한다.
+2. <Strong>지연 로딩 검증:</Strong> 영속성 컨텍스트가 서비스 메서드 단위로 정확히
+   닫히므로, `LazyInitializationException` 발생 여부를 정확히 테스트할 수 있다.
+3. <Strong>현실적인 환경:</Strong> 롤백에 의존하지 않고 실제로 DB에 `INSERT`, `DELETE`를
+   수행하므로 제약 조건(Constraints) 등을 더 확실하게 검증한다.
+
+---
+
+## 요약: 언제 무엇을 써야 할까?
+
+무조건 `@Transactional`을 쓰지 말라는 것은 아니다. 상황에 맞게 선택해야 한다.
+
+| 구분                       | 추천 방식                       | 이유                                                                                                           |
+| -------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Service 통합 테스트**    | <Strong>tearDown</Strong>       | 실제 비즈니스 로직의 트랜잭션 경계를 검증해야 하기 때문                                                        |
+| **Repository 단위 테스트** | <Strong>@Transactional</Strong> | 단순히 쿼리가 잘 나가는지, 매핑이 잘 되는지만 보면 되기 때문 (Repository 자체에는 이미 Transactional이 적용됨) |
+| **Controller 테스트**      | <Strong>Mocking</Strong>        | DB까지 가지 않고 Service를 Mocking 하므로 트랜잭션 여부가 중요하지 않음                                        |
+
+<Callout type="success" title="Conclusion">
+테스트 코드는 단순히 "초록불"을 보는 것이 목적이 아니라, <Strong>"내 코드가 프로덕션에서도 안전한가?"</Strong>를 검증하는 것이 목적이다.
+
+조금 귀찮더라도 `tearDown`을 사용하여 테스트 환경을 순수(Clean)하게 유지하는 습관을 들여보자. 그것이 미래의 버그를 막는 가장 빠른 길이다.
+
+</Callout>
