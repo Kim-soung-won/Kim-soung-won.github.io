@@ -1,0 +1,143 @@
+---
+title: "RAG vs Fine-Tuning:\n지식의 확장인가, 행동의 교정인가?"
+date: "2026-01-12"
+description: "RAG가 있는데 굳이 비싼 Fine-Tuning을 왜 할까? 프로젝트 구조와 데이터 예시를 통해 두 기술의 결정적 차이를 분석합니다."
+---
+
+데이터를 수정하기 용이하고 재사용하기 좋은 **RAG(검색 증강 생성)**가 있는데, 왜 굳이 정적인 **Fine-Tuning(파인튜닝)**을 하는 걸까요?
+
+처음 이 두 개념을 접하면 "도메인 특화 모델을 만든다"는 목적이 같아 보입니다. 하지만 이 둘은 해결하려는 문제의 본질이 다릅니다.
+
+핵심 쟁점은 <Strong>데이터를 모델에게 어떻게 가르치느냐</Strong>에 있습니다.
+
+## 1. 개념의 차이: 시험에 비유하기
+
+가장 직관적인 비유로 두 기술의 차이를 이해해 봅시다.
+
+<Callout type="info" title="시험 공부 방법의 차이">
+  * <Strong>RAG (Open Book):</Strong> 시험을 보는데 **참고서(Open Book)**를 옆에
+  펴두고 답을 찾는 방식입니다. 모르는 내용이 나와도 책을 뒤져서(Retrieval) 답을
+  적습니다. * <Strong>Fine-Tuning (Exam Prep):</Strong> 특정 과목의 **문제 풀이
+  요령과 문체**를 달달 외울 때까지 훈련하는 것입니다. 책을 보진 않지만, "이런
+  문제는 이렇게 푼다"는 패턴이 뇌(가중치)에 박혀 있습니다.
+</Callout>
+
+---
+
+## 2. 구조적 차이: 프로젝트 관점에서 보기
+
+개발자 관점에서 두 기술은 **프로젝트의 폴더 구조와 데이터 관리 방식**부터 다릅니다.
+
+<Tabs items={["RAG 아키텍처", "Fine-Tuning 아키텍처"]}>
+  <Tab>
+    RAG는 **외부 지식 저장소(Vector DB)**가 핵심입니다. 모델은 거들 뿐, 데이터는
+    외부에 존재합니다.
+    <FileTree>
+      <FolderItem name="rag-project" defaultOpen>
+        <FolderItem name="src">
+          <FileItem name="retriever.ts" />
+          <FileItem name="generator.ts" />
+        </FolderItem>
+        <FolderItem name="data" defaultOpen>
+          <FileItem name="company-wiki.pdf" />
+          <FileItem name="product-manual.docx" />
+        </FolderItem>
+        <FolderItem name="infrastructure">
+          <FileItem name="vector-db (Pinecone/Milvus)" />
+        </FolderItem>
+      </FolderItem>
+    </FileTree>
+  </Tab>
+  <Tab>
+    Fine-Tuning은 **학습 데이터(Dataset)**를 통해 모델 파일 자체를 바꿉니다.
+    <FileTree>
+      <FolderItem name="finetuning-project" defaultOpen>
+        <FolderItem name="src">
+          <FileItem name="train.py" />
+          <FileItem name="validation.py" />
+        </FolderItem>
+        <FolderItem name="dataset" defaultOpen>
+          <FileItem name="train_data.jsonl" />
+          <FileItem name="validation_data.jsonl" />
+        </FolderItem>
+        <FolderItem name="models">
+          <FileItem name="base-model-v1" />
+          <FileItem name="finetuned-model-v2.bin" />
+        </FolderItem>
+      </FolderItem>
+    </FileTree>
+  </Tab>
+</Tabs>
+
+---
+
+## 3. 왜 RAG가 있는데 파인튜닝을 할까?
+
+RAG로 해결되지 않는, 파인튜닝이 반드시 필요한 3가지 상황이 있습니다.
+
+<Steps>
+  <Step title="일관된 답변 스타일과 포맷 (Formatting)">
+    RAG는 '정보'를 주지만 '말투'는 통제하기 어렵습니다. 반면 파인튜닝은 모델의 행동 양식을 교정합니다.
+    
+    **예시: 감정 분석 결과를 특정 JSON으로만 출력해야 할 때**
+    
+    <Tabs items={['RAG 프롬프트', 'Fine-Tuning 데이터']}>
+      <Tab>
+        RAG는 매번 프롬프트에 예시를 넣어줘야 하므로 토큰 비용이 듭니다.
+        ```text
+        [System]
+        너는 감정 분석기야. 무조건 JSON으로 대답해.
+        예시: {"sentiment": "positive", "score": 0.9}
+        
+        [User]
+        이 영화 진짜 재밌네!
+        ```
+      </Tab>
+      <Tab>
+        파인튜닝은 질문만 던져도 알아서 포맷을 맞춥니다.
+        ```jsonl
+        {"messages": [{"role": "user", "content": "이 영화 최고!"}, {"role": "assistant", "content": "{\"sentiment\": \"positive\"}"}]}
+        {"messages": [{"role": "user", "content": "별로야."}, {"role": "assistant", "content": "{\"sentiment\": \"negative\"}"}]}
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="비용과 속도 최적화 (Token Economy)">
+    RAG는 복잡한 도메인 지식을 설명하기 위해 매번 수천 토큰의 문맥(Context)을 프롬프트에 포함해야 합니다. 이는 **API 비용 증가**와 **응답 속도 저하**로 이어집니다.
+    
+    파인튜닝된 모델은 문맥 없이 짧은 질문만으로도 의도를 파악하므로, 장기적으로 운영 비용이 절감됩니다.
+  </Step>
+  
+  <Step title="고난도 추론 능력 (Reasoning)">
+    단순히 정보를 찾는 게 아니라, **의료 진단**이나 **법률 판례 분석**처럼 특수한 논리 구조를 따라야 할 때가 있습니다.
+    
+    일반 모델은 잘 못하는 **특정 분야의 사고 과정(Chain of Thought)** 자체를 학습시켜 전문가스러운 추론을 가능하게 합니다.
+  </Step>
+</Steps>
+
+---
+
+## 4. 결론: 무엇을 선택해야 할까?
+
+두 기술은 상호 배타적이지 않습니다. 상황에 따라 장단점을 따져보아야 합니다.
+
+<ProsCons>
+  <Pros title="RAG가 유리한 경우">
+    * **최신 정보:** 어제 발표된 뉴스나 주식 정보를 다룰 때 * **투명성:** 답변의
+    출처(Reference)를 명확히 제시해야 할 때 * **비용:** 초기 구축 비용을 낮추고
+    싶을 때 * **데이터:** 내부 문서가 자주 업데이트될 때
+  </Pros>
+  <Cons title="Fine-Tuning이 유리한 경우">
+    * **스타일:** 특정 말투나 페르소나(캐릭터)가 필요할 때 * **포맷:** 복잡한
+    코드나 JSON 등 출력 형식이 엄격할 때 * **속도/비용:** 프롬프트 길이를 줄여
+    대량의 트래픽을 처리해야 할 때 * **전문성:** 일반 모델이 이해 못 하는 특수
+    도메인 언어를 쓸 때
+  </Cons>
+</ProsCons>
+
+<Callout type="success" title="Hybrid Approach">
+  최근 트렌드는 **"RAG로 최신 지식을 가져오고, Fine-Tuning 된 모델로 예쁘게
+  답변하는"** 하이브리드 방식을 채택하고 있습니다. 지식은 외부(DB)에 맡기고,
+  모델은 언어 능력(Skill)에 집중시키는 것이 가장 효율적입니다.
+</Callout>
