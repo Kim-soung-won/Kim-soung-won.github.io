@@ -12,12 +12,12 @@ export default function Header() {
             <span className="font-bold text-lg">D</span>
           </div>
           <span className="text-xl font-bold tracking-tight text-slate-800 dark:text-slate-100">
-            Dev<span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500">Log</span>
+            Daliy<span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500">Log</span>
           </span>
         </Link>
         
         <div className="flex items-center gap-4">
-          <nav className="hidden items-center gap-6 sm:flex">
+          {/* <nav className="hidden items-center gap-6 sm:flex">
             <Link 
               href="/posts" 
               className="text-sm font-semibold text-slate-600 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 transition-colors"
@@ -30,7 +30,7 @@ export default function Header() {
             >
               Docs
             </Link>
-          </nav>
+          </nav> */}
 
           <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-2" />
           

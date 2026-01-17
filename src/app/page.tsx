@@ -8,17 +8,16 @@ export default function PostsPage() {
     <section className="mx-auto max-w-screen-xl px-4 py-16 sm:px-6 lg:px-8">
       {/* 1. Hero Section */}
       <div className="mx-auto max-w-3xl text-center mb-16">
-        <h1 className="mb-6 text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-6xl">
-          Powerful <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500">Async State</span> Management
-        </h1>
-        <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed">
-          (이곳은 블로그 소개 문구입니다) TanStack Query 스타일을 모방한 깔끔하고 가독성 높은 기술 블로그입니다. 
-          서버 상태 관리부터 UI 디자인 패턴까지 다양한 이야기를 다룹니다.
+        <h2 className="mb-6 text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          간단하게 <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-amber-500">하루 하나</span> 관심 갖기
+        </h2>
+        <p className="text-md text-slate-600 dark:text-slate-400 leading-relaxed">
+          개발자로서 떠오르는 호기심과 의문에 대해 하루 하나씩 정리해나가는 블로그입니다.
         </p>
       </div>
 
       {/* 2. Grid List */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 grid-cols-1">
         {allPostsData.map(({ id, date, title, description }) => (
           <Link href={`/posts/${id}`} key={id} className="group relative flex flex-col">
             
