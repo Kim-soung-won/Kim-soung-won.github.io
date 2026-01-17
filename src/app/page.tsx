@@ -14,6 +14,9 @@ export default function PostsPage() {
         <p className="text-md text-slate-600 dark:text-slate-400 leading-relaxed">
           개발자로서 떠오르는 호기심과 의문에 대해 하루 하나씩 정리해나가는 블로그입니다.
         </p>
+        <p className="text-md text-slate-600 dark:text-slate-400 leading-relaxed">
+          개인 Notion에 작성한 글을 AI의 도움을 받아 .mdx 파일로 변환하여 게시합니다.
+        </p>
       </div>
 
       {/* 2. Grid List */}
