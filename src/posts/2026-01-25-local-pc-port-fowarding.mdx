@@ -1,0 +1,182 @@
+---
+title: "집에서 노는 데스크탑, 회사에서 접속하기: 홈 서버 구축기 (Docker + DDNS)"
+date: "2026-01-25"
+description: "포트포워딩부터 Docker 개발 환경 구축(DooD), 그리고 무료 DDNS 설정까지. 고성능 데스크탑을 나만의 클라우드 서버로 만드는 전체 과정을 정리합니다."
+---
+
+좋은 데스크탑을 사놓고 집에서만 쓰기엔 아깝다. 회사에서도, 카페에서도 내 고성능 데스크탑에 접속해 개발할 수 있다면 얼마나 좋을까?
+
+윈도우(Windows) 환경의 데스크탑을 **24시간 돌아가는 리눅스 서버**처럼 만드는 과정을 정리했다.
+
+---
+
+## 1. 네트워크의 문을 열자: 포트포워딩 & 방화벽
+
+집에 있는 PC는 공유기 뒤에 숨어 있다. 외부에서 접속하려면 **"이 문(Port)으로 들어오면 내 PC로 보내줘"**라고 공유기에게 알려줘야 한다.
+
+
+
+<Steps>
+  <Step title="내부 IP 주소 확인">
+    `cmd` 창을 열고 `ipconfig`를 입력하여 현재 PC의 IPv4 주소를 확인한다. (예: `192.168.0.10`)
+  </Step>
+
+  <Step title="공유기 포트포워딩 설정">
+    1. 브라우저 주소창에 공유기 관리 페이지(보통 `192.168.0.1` 등)를 입력해 접속한다.
+    2. 관리자 로그인 후 **[고급 설정] → [NAT/라우터 관리] → [포트포워딩]** 메뉴로 이동한다.
+    3. **규칙 추가:**
+        * **내부 IP:** 방금 확인한 PC 주소
+        * **외부 포트:** `8022` (외부에서 접속할 때 쓸 포트)
+        * **내부 포트:** `8022` (Docker 컨테이너가 열어둘 포트)
+  </Step>
+
+  <Step title="윈도우 방화벽 인바운드 규칙 허용">
+    공유기 문을 열었어도 윈도우가 막으면 소용없다.
+    
+    1. `Windows Defender 방화벽` 실행 → **[고급 설정]**
+    2. **[인바운드 규칙]** 클릭 → 우측 **[새 규칙]** 클릭
+    3. **[포트]** 선택 → **TCP**, 특정 로컬 포트에 `8022` 입력 → **[연결 허용]** → 이름 설정 후 마침.
+  </Step>
+</Steps>
+
+---
+
+## 2. 개발 환경 구축: Docker Container (Ubuntu + DooD)
+
+이제 접속해서 사용할 **"리눅스 개발 환경"**을 구축한다.
+단순한 OS가 아니라, 컨테이너 안에서도 Docker 명령어를 쓸 수 있는 **DooD (Docker Out of Docker)** 환경을 만든다.
+
+<FileTree>
+  <FolderItem name="home-server-workspace" defaultOpen>
+    <FileItem name="Dockerfile" />
+    <FileItem name="docker-compose.yml" />
+  </FolderItem>
+</FileTree>
+
+<Tabs items={['Dockerfile', 'docker-compose.yml']}>
+  <Tab>
+    Ubuntu 22.04를 베이스로 SSH 서버와 Docker 클라이언트를 설치한다.
+    
+    ```dockerfile
+    # 1. 베이스 이미지: Ubuntu 22.04 LTS
+    FROM ubuntu:22.04
+
+    # 2. 필수 패키지 설치
+    # openssh-server: 외부 접속용
+    # net-tools, iputils-ping: 네트워크 디버깅
+    RUN apt-get update && apt-get install -y \
+      openssh-server sudo curl git vim net-tools iputils-ping \
+      && rm -rf /var/lib/apt/lists/*
+
+    # 3. Docker CLI 설치 (컨테이너 내부에서 도커 사용)
+    RUN curl -fsSL [https://get.docker.com](https://get.docker.com) -o get-docker.sh && \
+      sh get-docker.sh && \
+      rm get-docker.sh
+
+    # 4. SSHD 설정 및 사용자 계정 생성
+    RUN mkdir /var/run/sshd
+
+    # build args로 받은 username/password 설정
+    ARG username
+    ARG password
+
+    RUN useradd -m -s /bin/bash ${username} && \
+      echo "${username}:${password}" | chpasswd && \
+      adduser ${username} sudo && \
+      usermod -aG docker ${username}
+
+    # 5. SSH 보안 설정 (Root 로그인 차단)
+    RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+      sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+
+    EXPOSE 22
+
+    # SSH 데몬 실행
+    CMD ["/usr/sbin/sshd", "-D"]
+    ```
+  </Tab>
+  <Tab>
+    `/var/run/docker.sock`을 공유하여 호스트의 도커 데몬을 빌려 쓴다.
+    
+    ```yaml
+    version: '3.8'
+
+    services:
+      dev-server:
+        container_name: dev-box
+        build:
+          context: .
+          dockerfile: Dockerfile
+          args:
+            username: seungwon
+            password: mysecretpassword # 실제 사용시 복잡하게 설정!
+        
+        # [Port] 호스트 8022 -> 컨테이너 22 (SSH)
+        ports:
+          - "8022:22"
+
+        # [Volume] 1. 작업 공간 동기화, 2. DooD 설정
+        volumes:
+          - "C:\\Users\\승원\\docker-workspace:/home/seungwon/workspace"
+          - "/var/run/docker.sock:/var/run/docker.sock"
+
+        restart: always
+        stdin_open: true
+        tty: true
+    ```
+  </Tab>
+</Tabs>
+
+<Callout type="info" title="DooD (Docker Out of Docker) 란?">
+  컨테이너 내부에서 또 다른 컨테이너를 실행해야 할 때가 있습니다. (예: `dev-box` 안에서 `docker run redis` 실행)
+  
+  이때 **DooD 방식**(`-v /var/run/docker.sock:/var/run/docker.sock`)을 사용하면, 컨테이너가 호스트 PC의 Docker 데몬을 직접 제어하여 성능 저하 없이 도커를 사용할 수 있습니다.
+</Callout>
+
+---
+
+## 3. 주소가 자꾸 바뀌나요? 무료 DDNS (DuckDNS)
+
+가정용 인터넷 IP는 주기적으로 바뀐다(Dynamic IP). 어제는 접속되던 `123.45.67.89`가 오늘은 접속이 안 될 수 있다.
+이를 해결하기 위해 **DuckDNS** 서비스를 사용하여 고정된 도메인 주소를 확보하자.
+
+### DuckDNS 설정 절차
+
+<Steps>
+  <Step title="도메인 발급">
+    1. [DuckDNS 공식 홈페이지](https://www.duckdns.org/) 접속 및 로그인 (Google/GitHub 등)
+    2. 원하는 도메인 입력 (예: `seungwon-server`) -> **add domain** 클릭
+    3. 상단에 표시된 **Token** 값 복사
+  </Step>
+
+  <Step title="DDNS 컨테이너 실행">
+    내 컴퓨터가 켜져 있는 동안 주기적으로 "나 IP 이거야!"라고 DuckDNS에게 알려주는 봇을 실행한다.
+    
+    ```yaml
+    version: '3.8'
+
+    services:
+      duckdns:
+        image: lscr.io/linuxserver/duckdns:latest
+        container_name: duckdns
+        environment:
+          - PUID=1000
+          - PGID=1000
+          - TZ=Asia/Seoul
+          - SUBDOMAINS=seungwon-server # .duckdns.org 앞부분만 입력
+          - TOKEN=abc12345-xxxx-xxxx-xxxx-xxxxxxxx # 발급받은 토큰
+          - LOG_FILE=true
+        restart: always
+    ```
+  </Step>
+</Steps>
+
+---
+
+## 4. 접속 테스트
+
+모든 설정이 끝났다. 이제 회사나 카페에서 터미널을 열고 접속해 보자.
+
+```bash
+# ssh {사용자ID}@{내도메인}.duckdns.org -p {포트번호}
+ssh seungwon@seungwon-server.duckdns.org -p 8022
