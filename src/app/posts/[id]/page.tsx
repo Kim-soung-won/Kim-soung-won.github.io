@@ -5,7 +5,7 @@ import type { Metadata } from 'next';
 
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { Callout, Cons, Details, FileItem, FileTree, FolderItem, Kbd, Pros, ProsCons, Step, Steps, Strong, Tab, Tabs } from '@/components/mdx';
+import { Callout, Cons, Details, FileItem, FileTree, FolderItem, Kbd, Pros, ProsCons, Step, Steps, Strong, Tab, Tabs, Equation } from '@/components/mdx';
 
 const components = {
   Callout,
@@ -13,6 +13,7 @@ const components = {
   Step,
   Kbd,
   Details,
+  Equation,
   Strong,
   FileTree, FileItem, FolderItem,
   Tabs, Tab,

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "new": "node scripts/create-post.js" 
+    "new": "node scripts/create-post.js"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
