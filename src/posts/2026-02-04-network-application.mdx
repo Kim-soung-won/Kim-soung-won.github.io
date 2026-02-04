@@ -1,0 +1,175 @@
+---
+title: "애플리케이션 계층(Layer 7):\nHTTP와 DNS가 대화하는 법"
+date: "2026-02-05"
+description: "웹 개발자의 필수 지식. HTTP의 비상태성과 쿠키, 그리고 인터넷의 내비게이션 DNS의 8단계 여정을 상세히 분석합니다."
+---
+
+웹 개발자라면 늘 함께하는 API 호출이 실제로 어떤 규칙(Protocol) 위에서 움직이는지 배우는 가장 재미있는 구간입니다.
+
+이 장의 핵심은 **"하부 계층(TCP/UDP)이 어떻게 동작하는지 몰라도, 프로토콜 규약만 맞추면 통신할 수 있다"**는 **추상화의 힘**을 이해하는 것입니다.
+
+---
+
+## 1. 네트워크 애플리케이션의 구조
+
+모든 네트워크 프로그램은 데이터를 주고받기 위한 '설계도(Architecture)'가 필요합니다.
+
+<Tabs items={["클라이언트-서버 구조", "P2P (Peer-to-Peer) 구조"]}>
+  <Tab>
+    가장 대중적인 모델로, 역할이 명확히 구분됩니다. * **Server (Host):** 고정
+    IP를 가지고 항상 켜져 있으며, 요청을 기다립니다. (예: 데이터센터의 웹 서버)
+    * **Client:** 원할 때만 접속하여 요청을 보냅니다. (예: 내 스마트폰, 노트북)
+    * **특징:** 관리가 쉽지만, 서버에 트래픽이 몰리면 병목이 발생합니다. (Web,
+    Email)
+  </Tab>
+  <Tab>
+    중앙 서버 없이 호스트끼리 직접 통신하는 구조입니다. * **특징:** 클라이언트가
+    곧 서버 역할을 동시에 수행합니다. * **장점:** 사용자가 늘어날수록 전체 처리
+    용량(Scalability)도 함께 늘어납니다. (BitTorrent 등) * **단점:** 관리가
+    어렵고 보안 유지가 힘듭니다.
+  </Tab>
+</Tabs>
+
+---
+
+## 2. HTTP: 웹의 공용어
+
+**HTTP(HyperText Transfer Protocol)**는 웹의 근간이 되는 프로토콜입니다.
+
+### 핵심 특징 3가지
+
+1.  **비상태 프로토콜 (Stateless):**
+    서버는 클라이언트의 과거를 기억하지 않습니다. 덕분에 서버 설계가 단순해지고 확장성이 좋지만, '로그인 유지'를 위해 **쿠키(Cookie)**라는 땜빵(?) 기술이 필요해졌습니다.
+2.  **연결 관리 (Persistent vs Non-persistent):**
+    과거에는 객체 하나마다 연결을 끊었지만(비지속), 현대에는 한 번 연결하면 여러 객체를 연속해서 보냅니다(지속 연결).
+3.  **버전의 진화:**
+    - **HTTP/1.1:** 요청을 순차적으로 보냅니다. (앞 요청이 막히면 뒤도 막힘)
+    - **HTTP/2:** 멀티플렉싱(Multiplexing)을 도입하여 하나의 연결로 여러 메시지를 병렬 전송합니다.
+
+### HTTP는 '텍스트'다
+
+초기 설계자들은 디버깅 편의성을 위해 메시지를 **사람이 읽을 수 있는 ASCII 텍스트**로 만들었습니다.
+
+<Tabs items={["요청 메시지 (Request)", "응답 메시지 (Response)"]}>
+  <Tab>
+
+    ```http
+
+    GET /index.html HTTP/1.1 Host:
+    [www.example.com](https://www.example.com) User-Agent: Mozilla/5.0 Accept:
+    text/html (Body: POST 요청 시 데이터가 들어감)
+    ```
+    * **시작줄:**
+    메서드(GET), 경로, 버전 * **헤더:** 부가 정보 (Key: Value) * **공백 라인:**
+    헤더와 본문을 나누는 경계선
+
+  </Tab>
+
+  <Tab>
+    ```http 
+    HTTP/1.1 200 OK Date: Mon, 27 Jul 2009 12:28:53 GMT Content-Type:
+    text/html
+    <html>
+      <body>Hello World!</body>
+    </html>
+    ``` 
+    * **시작줄:** 버전, 상태 코드(200), 상태 문구(OK) * **헤더:** 콘텐츠
+    타입 등 * **본문:** 실제 데이터 (HTML, JSON 등)
+  </Tab>
+</Tabs>
+
+---
+
+## 3. 쿠키와 세션: 기억상실증 치료제
+
+HTTP의 비상태성(Stateless)을 보완하기 위해 **쿠키**가 등장했습니다.
+
+### 쿠키의 동작 원리
+
+<Steps>
+  <Step title="1. 발급 (Set-Cookie)">
+    클라이언트가 로그인하면, 서버는 응답 헤더에 꼬리표를 붙여 보냅니다.
+    `Set-Cookie: user_id=gemini`
+  </Step>
+
+<Step title="2. 저장 (Storage)">
+  브라우저는 이 정보를 자신의 쿠키 저장소에 소중히 기록합니다.
+</Step>
+
+  <Step title="3. 전송 (Send)">
+    이후 클라이언트가 **같은 서버**에 요청을 보낼 때마다, 브라우저가 알아서
+    헤더에 꼬리표를 붙여 보냅니다. `Cookie: user_id=gemini`
+  </Step>
+</Steps>
+
+<Callout type="warning" title="보안 속성 (Security Attributes)">
+  쿠키는 탈취되기 쉽기 때문에 최소한의 안전장치가 필요합니다. * **HttpOnly:**
+  자바스크립트(`document.cookie`)로 접근 불가 (XSS 방지) * **Secure:** HTTPS
+  연결에서만 전송 * **SameSite:** 다른 사이트에서 요청을 보낼 때 쿠키 전송 제한
+  (CSRF 방지)
+</Callout>
+
+### 세션(Session)이란?
+
+쿠키에 `user_id=admin` 처럼 중요 정보를 그대로 적으면 위험합니다.
+따라서 **실제 정보는 서버(장부)에 두고**, 클라이언트에게는 그 장부를 열 수 있는 **열쇠(Session ID)**만 쿠키에 담아 주는 방식입니다.
+
+---
+
+## 4. DNS: 인터넷의 전화번호부
+
+우리는 `naver.com`을 입력하지만, 컴퓨터는 IP 주소만 이해합니다. 이 둘을 매핑해주는 것이 **DNS(Domain Name System)**입니다.
+
+### DNS의 계층 구조
+
+전 세계 도메인을 한 대의 서버가 관리할 수 없어서 계층으로 나눴습니다.
+
+- **Root (.)**: 최상위 보스. TLD 서버의 위치를 압니다.
+- **TLD (.com, .kr)**: `.com` 등을 관리하며, 책임 서버의 위치를 압니다.
+- **Authoritative (책임 서버)**: 실제 `naver.com`의 IP를 알고 있는 주인입니다.
+
+### 주소를 찾는 8단계 여정 (Recursive Query)
+
+우리가 브라우저에 `www.naver.com`을 입력했을 때, 뒤단에서는 **재귀적 질의(Recursive Query)**와 **반복적 질의(Iterative Query)**가 섞여서 일어납니다.
+
+<Steps>
+  <Step title="1. 요청 (Client -> Resolver)">
+    사용자가 **로컬 DNS 리졸버**(통신사 DNS 등)에게 묻습니다. "야,
+    `www.naver.com` IP 좀 찾아와." (재귀적 질의)
+  </Step>
+
+<Step title="2. 루트에게 질문 (Resolver -> Root)">
+  리졸버는 IP를 모르니 **Root 서버**에게 갑니다. "너 `www.naver.com` 알아?"
+</Step>
+
+<Step title="3. TLD 안내 (Root -> Resolver)">
+  "난 몰라. 근데 `.com` 관리하는 애(TLD) 주소는 알아. 걔한테 가봐."
+</Step>
+
+<Step title="4. TLD에게 질문 (Resolver -> TLD)">
+  리졸버는 **.com TLD 서버**에게 갑니다. "너 `www.naver.com` 아니?"
+</Step>
+
+<Step title="5. 책임 서버 안내 (TLD -> Resolver)">
+  "난 몰라. 근데 `naver` 관리하는 애(Authoritative) 주소는 알아. 걔한테 가봐."
+</Step>
+
+<Step title="6. 책임 서버에게 질문 (Resolver -> Authoritative)">
+  리졸버는 드디어 **Naver 책임 서버**에게 갑니다. "너 `www.naver.com` 알지? 빨리
+  내놔."
+</Step>
+
+<Step title="7. 정답 전달 (Authoritative -> Resolver)">
+  "어, 그 IP는 `223.130.195.200`이야."
+</Step>
+
+  <Step title="8. 최종 응답 (Resolver -> Client)">
+    리졸버가 사용자에게 IP를 전달하며 긴 여정이 끝납니다.
+  </Step>
+</Steps>
+
+<Callout type="success" title="DNS Caching">
+  이 8단계를 매번 거치면 인터넷이 너무 느릴 것입니다. 그래서 브라우저와 리졸버는
+  한 번 찾은 주소를 **TTL(Time To Live)** 시간 동안 메모리에 저장(캐싱)해
+  둡니다.
+</Callout>
