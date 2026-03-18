@@ -6,17 +6,20 @@
 
 @layer base {
   body {
-    /* transition-colors: 테마 변경 시 부드럽게 색이 바뀌도록 함
-       bg-white / dark:bg-slate-900: Tailwind 유틸리티 클래스로 제어
-    */
     @apply bg-white text-slate-900 antialiased transition-colors duration-300;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    line-height: 1.75;
   }
-  
-  /* html 태그에 dark 클래스가 붙으면 body에 이 스타일을 적용하라는 의미 
-     (위의 darkMode: 'selector' 설정이 있어야 dark: 접두사가 작동함)
-  */
+
   :root.dark body {
     @apply bg-slate-900 text-slate-200;
+  }
+
+  /* 한국어 본문 가독성 */
+  p, li, blockquote {
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
 }
 

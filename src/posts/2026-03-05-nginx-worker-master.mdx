@@ -6,7 +6,9 @@ description: "Nginx 컨테이너가 특정 업스트림을 찾지 못해 종료�
 
 웹 서버를 구축하다 보면 예기치 못한 설정 오류로 컨테이너가 무한 재시작되는 루프에 빠지곤 합니다. 특히 **Nginx**를 프록시 서버로 사용할 때, 접근할 수 없는 외부 경로에 대한 설정이 부팅 단계에서 치명적인 장애를 유발하는 경우가 많습니다.
 
-"정적 설정인데, 왜 런타임이 아닌 부팅 시점에 문제가 생길까?"
+<Quote>
+정적 설정인데, 왜 런타임이 아닌 부팅 시점에 문제가 생길까?
+</Quote>
 
 이 의문을 해결하기 위해 Nginx의 **프로세스 아키텍처**와 **도메인 해석(DNS Resolution)** 시점을 파헤쳐 보겠습니다.
 
@@ -17,11 +19,11 @@ description: "Nginx 컨테이너가 특정 업스트림을 찾지 못해 종료�
 Nginx가 기동되어 트래픽을 처리하기까지의 과정은 크게 두 단계로 나뉩니다.
 
 <Steps>
-  <Step title="1. Startup/Master (설정 검증 단계)">
+  <Step title="Startup / Master — 설정 검증 단계">
     Nginx 바이너리가 실행되자마자 설정 파일(`nginx.conf`)을 읽어들입니다. 이때 모든 구문 오류와 **고정된 도메인**의 유효성을 체크합니다.
   </Step>
-  
-  <Step title="2. Runtime/Worker (트래픽 처리 단계)">
+
+  <Step title="Runtime / Worker — 트래픽 처리 단계">
     Master로부터 명령을 받은 Worker 프로세스들이 실제로 클라이언트의 요청을 받아 비즈니스 로직(프록시, 정적 파일 서빙 등)을 처리합니다.
   </Step>
 </Steps>
@@ -40,7 +42,7 @@ Nginx가 왜 이런 방식으로 동작하는지 이해하려면, 그 근간이 
 - **Worker Process (실무자):** CPU 코어 수만큼 생성됩니다. Master가 준 매뉴얼(설정)을 바탕으로, 쉴 새 없이 들어오는 수많은 요청을 **논블로킹(Non-blocking)** 방식으로 빠르게 처리합니다.
 
 <Callout type="info" title="참고: 고성능의 비결">
-  Nginx의 효율적인 데이터 처리에 대해 더 궁금하다면, [TCP 서버의 내부 동작 심층 분석](file:///c:/Users/승원/my-blog/src/posts/2026-02-10-network-tcp-detail.mdx) 포스트에서 Zero-copy와 커널 레벨의 I/O 원리를 확인해보세요.
+  Nginx의 효율적인 데이터 처리에 대해 더 궁금하다면, Zero-copy와 커널 레벨의 I/O 원리를 다룬 TCP 서버 내부 동작 포스트를 참고해보세요.
 </Callout>
 
 ---

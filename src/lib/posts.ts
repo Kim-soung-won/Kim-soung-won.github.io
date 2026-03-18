@@ -15,9 +15,9 @@ export interface PostData {
 export function getSortedPostsData(): PostData[] {
   if (!fs.existsSync(postsDirectory)) return [];
 
-  const fileNames = fs.readdirSync(postsDirectory);
+  const fileNames = fs.readdirSync(postsDirectory).filter((f) => /\.(mdx|md)$/.test(f));
   const allPostsData = fileNames.map((fileName) => {
-    const id = fileName.replace(/\.mdx$/, '').replace(/\.md$/, ''); // .mdx 지원
+    const id = fileName.replace(/\.(mdx|md)$/, '');
     const fullPath = path.join(postsDirectory, fileName);
     const fileContents = fs.readFileSync(fullPath, 'utf8');
     const matterResult = matter(fileContents);

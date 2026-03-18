@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Noto_Sans_KR, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BaseLayout from "@/components/layout/BaseLayout";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 
-const inter = Inter({ 
+const notoSansKR = Noto_Sans_KR({
+  weight: ["400", "500", "700", "900"],
   subsets: ["latin"],
+  preload: false,
+  display: "swap",
   variable: "--font-inter",
 });
 
-const jetbrainsMono = JetBrains_Mono({ 
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 });
@@ -25,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
+    <html lang="ko" className={`${notoSansKR.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased text-slate-800 bg-white selection:bg-blue-100 selection:text-blue-900 dark:bg-slate-900 dark:text-slate-100">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <BaseLayout>
