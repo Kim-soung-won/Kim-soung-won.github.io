@@ -1,0 +1,495 @@
+---
+title: "Tooltip은 왜 가려질까 — Portal과 getBoundingClientRect로 설계하는 스타일 불변 툴팁"
+date: "2026-03-29"
+description: "overflow, transform, z-index stacking context가 툴팁을 가리는 원리를 분석하고, createPortal과 getBoundingClientRect를 이용해 어떤 부모 구조에서도 동일한 형태를 유지하는 툴팁을 설계하는 방법을 다룹니다."
+---
+
+툴팁은 UI에서 가장 흔하게 쓰이는 컴포넌트 중 하나지만, 의외로 **"망가지기 쉬운"** 컴포넌트이기도 합니다.
+
+단순한 정적 페이지에서는 `position: absolute`와 CSS `::before`만으로도 잘 동작합니다.
+하지만 실제 앱에서는 카드 안에, 모달 안에, 애니메이션 컨테이너 안에 들어가면서 조용히 잘리거나, 다른 요소 뒤로 숨거나, 예상치 못한 위치에 나타나는 문제가 생깁니다.
+
+이 글은 <Strong>툴팁이 가려지는 세 가지 근본 원인</Strong>을 분석하고, 어떤 부모 구조를 갖든 항상 같은 형태로 렌더되는 툴팁을 설계하는 방법을 다룹니다.
+
+---
+
+## 1. 툴팁이 보이지 않는 세 가지 원인
+
+### 원인 1 — `overflow: hidden`
+
+`position: absolute`인 요소는 **가장 가까운 positioned 조상**을 기준으로 배치됩니다.
+그런데 그 조상이 `overflow: hidden`을 갖고 있으면, 박스 경계를 벗어나는 모든 자식은 잘립니다.
+
+```
+┌───────────────────────────────┐  ← overflow: hidden
+│                               │
+│  [버튼]                        │
+│    ┌──────────────────┐       │
+│    │ ✂ 잘린 툴팁       │       │
+│ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ │  ← 이 선 아래는 보이지 않음
+└───────────────────────────────┘
+```
+
+<Callout
+  type="warning"
+  title="가장 흔한 함정: border-radius + overflow: hidden"
+>
+  `border-radius`가 적용된 카드 컴포넌트는 모서리 처리를 위해 `overflow:
+  hidden`을 함께 쓰는 경우가 많습니다. 그 안에 들어간 툴팁이 **소리 없이
+  잘리는** 이유가 바로 이것입니다.
+</Callout>
+
+### 원인 2 — `transform`이 만드는 containing block 함정
+
+`overflow: hidden`을 피하기 위해 `position: fixed`로 바꾸는 것은 좋은 시도입니다. 하지만 한 가지 함정이 더 있습니다.
+
+CSS 명세에 따르면, <Strong>`transform` / `filter` / `will-change` / `perspective` 속성이 있는 요소는 새로운 containing block을 형성</Strong>합니다.
+`position: fixed`인 자식 요소는 viewport가 아닌 이 요소를 기준으로 배치됩니다.
+
+<Quote>
+  `transform: translateX(0)`처럼 아무런 시각적 변화가 없는 선언 하나가, 하위
+  모든 `position: fixed` 요소의 기준점을 바꿔버립니다.
+</Quote>
+
+<Callout type="info" title="왜 아무 변화가 없어도 containing block이 생기나요?">
+  CSS 명세는 `transform` 프로퍼티가 `none`이 아닌 값을 가지면 무조건 새
+  containing block을 생성하도록 정의합니다. 브라우저 렌더러가 `transform`을 GPU
+  레이어로 처리하기 때문에, 실제 변형값과 무관하게 별도 컨텍스트가 만들어집니다.
+</Callout>
+
+다크모드 전환 애니메이션, 슬라이드 인/아웃, 카드 hover lift 효과 — 모두 `transform`을 사용하기 때문에 이 함정에 빠지기 쉽습니다.
+
+### 원인 3 — z-index Stacking Context
+
+`z-index`는 **같은 stacking context 안에서만 비교됩니다.** 서로 다른 stacking context에 속한 요소들의 z-index는 직접 비교가 불가능합니다.
+
+| 속성          | Stacking Context 생성 조건                                      |
+| ------------- | --------------------------------------------------------------- |
+| `position`    | `relative/absolute/fixed/sticky` + `z-index`가 `auto`가 아닐 때 |
+| `opacity`     | `1` 미만                                                        |
+| `transform`   | `none`이 아닐 때                                                |
+| `filter`      | `none`이 아닐 때                                                |
+| `isolation`   | `isolate`                                                       |
+| `will-change` | `transform`, `opacity` 등을 값으로 가질 때                      |
+
+<Details summary="Stacking Context 생성 조건 전체 목록 (CSS 명세 기준)">
+MDN 기준으로 Stacking Context를 생성하는 모든 조건은 다음과 같습니다.
+
+- `position: fixed` 또는 `sticky` (z-index 값 무관)
+- `position: relative/absolute` + `z-index`가 `auto`가 아닐 때
+- `opacity` < 1
+- `transform` ≠ `none`
+- `filter` ≠ `none`
+- `perspective` ≠ `none`
+- `clip-path` ≠ `none`
+- `mask` / `mask-image` / `mask-border`
+- `isolation: isolate`
+- `mix-blend-mode` ≠ `normal`
+- `will-change`에 위 속성 중 하나가 포함될 때
+- `contain: layout` / `paint` / `strict` / `content`
+- `backdrop-filter` ≠ `none`
+
+생각보다 많습니다. 모던 CSS 애니메이션을 쓰다 보면 자연스럽게 생성됩니다.
+
+</Details>
+
+<Callout type="danger" title="z-index: 9999의 한계">
+  높은 z-index는 **같은 stacking context 안에서만** 효과가 있습니다. 모달
+  오버레이가 `z-index: 100`인 stacking context를 만들었다면, 그 안의 툴팁은
+  `z-index: 9999`여도 모달 외부의 `z-index: 200` 요소 뒤에 숨을 수 있습니다.
+</Callout>
+
+---
+
+## 2. 세 문제를 한 번에 해결하는 방법: Portal
+
+세 원인 모두 공통된 해결책이 있습니다. <Strong>툴팁을 DOM 트리에서 탈출시키는 것</Strong>입니다.
+
+React의 `createPortal`은 컴포넌트를 원래 부모 트리가 아닌 다른 DOM 노드에 렌더합니다. 보통 `document.body`를 대상으로 사용합니다.
+
+<CodeTitle name="TooltipPortal.tsx">
+```tsx
+import { createPortal } from "react-dom";
+
+function TooltipPortal({ children }: { children: React.ReactNode }) {
+// document.body 직하에 마운트 → 어떤 조상 스타일에도 영향받지 않음
+return createPortal(children, document.body);
+}
+
+```
+</CodeTitle>
+
+`document.body` 직하에 마운트된 요소는 다음 세 가지가 보장됩니다.
+
+<Steps>
+  <Step title="overflow 탈출">
+    `document.body`의 직접 자식이므로, 앱 내부의 어떤 `overflow: hidden` 조상도 적용되지 않습니다.
+  </Step>
+  <Step title="transform 탈출">
+    `body` 위에 `transform`을 가진 조상이 없으므로, `position: fixed`가 진짜 viewport 기준으로 동작합니다.
+  </Step>
+  <Step title="z-index 독립">
+    앱 레이어 구조와 별개의 stacking context에서 렌더되므로, z-index 값이 실제로 의도한 대로 동작합니다.
+  </Step>
+</Steps>
+
+<Callout type="tip" title="이벤트 버블링은 DOM이 아닌 React 트리를 따릅니다">
+Portal로 `document.body`에 렌더되어도, React의 이벤트 버블링은 **가상 DOM 트리(fiber 트리)** 를 따릅니다.
+Portal 내부의 클릭 이벤트는 원래 부모 컴포넌트까지 버블링됩니다.
+<Kbd>ESC</Kbd> 키로 툴팁을 닫는 핸들러를 부모에 붙여도 정상적으로 동작하는 이유입니다.
+</Callout>
+
+---
+
+## 3. `getBoundingClientRect()`로 위치 계산하기
+
+Portal로 렌더된 툴팁은 `document.body` 소속이기 때문에 트리거 요소의 위치를 CSS로 알 수 없습니다. JS로 좌표를 계산해 주입해야 합니다.
+
+`getBoundingClientRect()`는 DOM 요소의 **뷰포트 기준 좌표**를 반환하는 메서드입니다.
+
+```
+
+viewport (브라우저 창)
+┌────────────────────────────────────────┐
+│ │
+│ ↑ rect.top (px) │
+│ ┌──────────────────┐ │
+│ │ │ rect.height │
+│ │ element │ │
+│ └──────────────────┘ │
+│ ↓ rect.bottom │
+│ │
+│ ←rect.left→ ←rect.right→ │
+│ ←── rect.width ───→ │
+└────────────────────────────────────────┘
+
+````
+
+반환되는 `DOMRect` 객체의 주요 프로퍼티:
+
+| 프로퍼티 | 의미 |
+|---------|------|
+| `top` | 뷰포트 상단 ↔ 요소 상단 거리 |
+| `left` | 뷰포트 좌측 ↔ 요소 좌측 거리 |
+| `width` | 요소 너비 |
+| `height` | 요소 높이 |
+| `bottom` | `top + height` |
+| `right` | `left + width` |
+
+`position: fixed`도 뷰포트 기준으로 배치되기 때문에, `getBoundingClientRect()`의 좌표를 바로 `left`, `top`에 사용할 수 있습니다. 스크롤 오프셋을 따로 더할 필요가 없습니다.
+
+<Callout type="info" title="문서 절대 좌표가 필요하다면">
+`position: absolute` 기반 배치처럼 페이지 전체 기준의 절대 좌표가 필요하다면 스크롤 오프셋을 더해야 합니다.
+
+```js
+const absoluteTop  = rect.top  + window.scrollY;
+const absoluteLeft = rect.left + window.scrollX;
+````
+
+</Callout>
+
+### 트리거 중앙 위에 배치하는 좌표 공식
+
+<Equation caption="툴팁을 트리거 요소 수평 중앙 위에 배치하는 계산식">
+  x = rect.left + rect.width / 2 &nbsp;&nbsp;&nbsp; y = rect.top
+</Equation>
+
+<CodeTitle name="useTooltip.ts">
+```ts
+function useTooltip() {
+  const [pos, setPos] = useState({ x: 0, y: 0, visible: false });
+
+const show = useCallback((e: React.MouseEvent<HTMLElement>, text: string) => {
+const rect = e.currentTarget.getBoundingClientRect();
+
+    setPos({
+      x: rect.left + rect.width / 2,  // 수평 중앙
+      y: rect.top,                    // 요소 상단 (툴팁은 transform으로 위로 올림)
+      visible: true,
+    });
+
+}, []);
+
+const hide = useCallback(
+() => setPos(p => ({ ...p, visible: false })),
+[]
+);
+
+return { pos, show, hide };
+}
+
+````
+</CodeTitle>
+
+좌표를 `fixed` 요소에 적용할 때는 `transform`으로 수평 중앙 정렬과 위쪽 배치를 동시에 처리합니다.
+
+```tsx
+<div style={{
+  position: "fixed",
+  left: pos.x,
+  top: pos.y,
+  transform: "translate(-50%, -100%)",  // 수평 중앙 + 요소 위로 이동
+  marginTop: "-8px",                    // 요소와의 여백
+  pointerEvents: "none",                // 툴팁이 hover를 가로채지 않도록
+}} />
+````
+
+---
+
+## 4. 뷰포트 경계 감지 — Flip Logic
+
+화면 상단에 있는 요소에 툴팁을 올리면 뷰포트 밖으로 잘려나갈 수 있습니다. 공간이 부족하면 반대 방향으로 flip하는 로직이 필요합니다.
+
+<Steps>
+  <Step title="상단 여유 공간 측정">
+    `rect.top`과 툴팁 높이를 비교합니다. 툴팁 높이는 `tooltipRef.current?.offsetHeight`으로 측정하거나 고정값을 사용합니다.
+
+    ```ts
+    const TOOLTIP_HEIGHT = 36;
+    const GAP = 8;
+    const hasSpaceAbove = rect.top > TOOLTIP_HEIGHT + GAP;
+    ```
+
+  </Step>
+  <Step title="배치 방향(placement) 결정">
+    ```ts
+    const placement: "top" | "bottom" = hasSpaceAbove ? "top" : "bottom";
+    ```
+  </Step>
+  <Step title="방향에 따라 y 좌표 분기">
+    ```ts
+    const y = placement === "top"
+      ? rect.top               // 요소 위 → transform으로 올림
+      : rect.bottom + GAP;     // 요소 아래 → 그대로 내림
+    ```
+  </Step>
+  <Step title="좌우 경계 클램핑">
+    툴팁이 좌우로 넘어가지 않도록 뷰포트 너비 기준으로 x를 클램핑합니다.
+
+    ```ts
+    const TOOLTIP_WIDTH = 200;
+    const x = Math.max(
+      TOOLTIP_WIDTH / 2,
+      Math.min(rawX, window.innerWidth - TOOLTIP_WIDTH / 2)
+    );
+    ```
+
+  </Step>
+  <Step title="화살표 방향도 함께 전환">
+    `placement` 상태를 툴팁 컴포넌트에 전달해 화살표의 border-color 방향을 조건부로 변경합니다.
+  </Step>
+</Steps>
+
+---
+
+## 5. `ref` 없이 위치를 얻는 방법
+
+Portal 기반 툴팁에서 트리거 요소의 위치를 얻기 위해 반드시 `ref`가 필요하지는 않습니다.
+
+<Tabs items={["이벤트에서 직접 (ref 불필요)", "ref로 명시적 접근 (재계산 필요 시)"]}>
+  <Tab>
+    `onMouseEnter` 이벤트가 발생한 순간, `e.currentTarget`이 이벤트를 받은 요소 자신입니다.
+    그 시점에 `getBoundingClientRect()`를 호출하면 됩니다.
+
+    ```tsx
+    <button
+      onMouseEnter={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        show(rect, "툴팁 텍스트");
+      }}
+      onMouseLeave={hide}
+    >
+      hover me
+    </button>
+    ```
+
+    이벤트 핸들러 안에서는 이 방식으로 충분합니다. `ref` 없이 위치를 계산할 수 있습니다.
+
+  </Tab>
+  <Tab>
+    이벤트 없이 위치가 필요한 경우 — 예를 들어 스크롤/리사이즈 시 툴팁 위치를 재계산하거나, 외부에서 명령형으로 툴팁을 열 때는 `ref`가 필요합니다.
+
+    ```tsx
+    const triggerRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+      function reposition() {
+        if (!triggerRef.current) return;
+        const rect = triggerRef.current.getBoundingClientRect();
+        updatePosition(rect);
+      }
+      window.addEventListener("scroll", reposition, { passive: true });
+      window.addEventListener("resize", reposition);
+      return () => {
+        window.removeEventListener("scroll", reposition);
+        window.removeEventListener("resize", reposition);
+      };
+    }, []);
+    ```
+
+    <Callout type="tip" title="passive: true 꼭 붙이기">
+      `scroll` 이벤트 리스너에 `{ passive: true }`를 붙이면 브라우저에 "이 핸들러에서 `preventDefault()`를 호출하지 않겠다"고 알립니다.
+      브라우저가 스크롤을 메인 스레드 블로킹 없이 처리할 수 있어 성능이 향상됩니다.
+    </Callout>
+
+  </Tab>
+</Tabs>
+
+<Details summary="Intersection Observer vs scroll 이벤트 — 언제 무엇을 쓸까?">
+툴팁 재배치에 `scroll` 이벤트를 쓰는 것은 괜찮지만, 요소의 가시성 감지에는 **Intersection Observer**가 더 적합합니다.
+
+|               | scroll 이벤트              | Intersection Observer                |
+| ------------- | -------------------------- | ------------------------------------ |
+| **발화 빈도** | 매 픽셀마다                | 교차 시점에만                        |
+| **스레드**    | 메인 스레드                | 브라우저 최적화 비동기               |
+| **용도**      | 위치 재계산, 스크롤 진행률 | 가시성 감지, TOC 활성화, 레이지 로딩 |
+
+트리거가 화면 밖으로 스크롤되면 툴팁을 닫는 로직은 Intersection Observer로 구현하는 것이 성능상 유리합니다.
+
+</Details>
+
+---
+
+## 6. 스타일 불변성 설계 원칙
+
+Portal로 DOM 위치 문제를 해결했더라도, 툴팁의 스타일이 부모에 오염되지 않도록 설계해야 합니다.
+
+<Tabs items={["CSS 상속 차단", "단위 선택: px vs em", "z-index 레이어 체계"]}>
+  <Tab>
+    CSS의 `color`, `font-size`, `line-height`, `font-family` 등은 자식에게 상속됩니다.
+    Portal로 body에 마운트하면 대부분의 앱 스타일을 탈출하지만, 글로벌 CSS가 body 자식에 적용되는 경우를 대비해 툴팁 루트에 명시적으로 재선언하는 것이 안전합니다.
+
+    ```css
+    .tooltip {
+      /* 상속될 수 있는 속성들을 명시적으로 재선언 */
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.5;
+      color: #f1f5f9;
+      letter-spacing: normal;
+      text-align: left;
+      text-transform: none;
+      white-space: nowrap;
+    }
+    ```
+
+  </Tab>
+  <Tab>
+    `em` 단위는 **부모의 `font-size`를 기준**으로 계산됩니다. 툴팁 내부에서 `em`을 쓰면 부모 폰트 크기에 따라 크기가 달라집니다.
+
+    | 단위 | 기준 | 툴팁 사용 여부 |
+    |------|------|--------------|
+    | `em` | 부모 `font-size` | ❌ 오염 가능 |
+    | `rem` | `<html>` 루트 `font-size` | ✅ 상대적으로 안정 |
+    | `px` | 절대값 | ✅ 가장 안정적 |
+
+    툴팁처럼 스타일이 일정해야 하는 컴포넌트에서는 `px`를 우선 사용합니다.
+
+  </Tab>
+  <Tab>
+    앱의 레이어 체계를 상수로 미리 정의해 두면 z-index 값이 충돌 없이 관리됩니다.
+
+    <CodeTitle name="layers.ts">
+    ```ts
+    export const LAYERS = {
+      base:       0,
+      card:       10,
+      dropdown:   100,
+      modal:      200,
+      toast:      300,
+      tooltip:    400,   // 항상 최상위
+    } as const;
+    ```
+    </CodeTitle>
+
+    Portal 툴팁은 별도의 stacking context를 만들지 않으므로, 이 값이 실제로 body의 다른 요소들과 직접 비교됩니다.
+
+  </Tab>
+</Tabs>
+
+---
+
+## 7. 컴포넌트 파일 구조
+
+완성된 툴팁 컴포넌트의 파일 구조 예시입니다.
+
+<FileTree>
+  <FolderItem name="components/tooltip">
+    <FileItem name="index.ts" />
+    <FileItem name="Tooltip.tsx" />
+    <FileItem name="useTooltip.ts" />
+    <FileItem name="useTooltipPosition.ts" />
+    <FileItem name="tooltip.module.css" />
+  </FolderItem>
+</FileTree>
+
+각 파일의 역할을 분리하면 다음과 같습니다.
+
+| 파일                    | 역할                                |
+| ----------------------- | ----------------------------------- |
+| `Tooltip.tsx`           | Portal 렌더러 + 시각적 컴포넌트     |
+| `useTooltip.ts`         | 열림/닫힘 상태, 텍스트 관리         |
+| `useTooltipPosition.ts` | `getBoundingClientRect` + Flip 로직 |
+| `tooltip.module.css`    | 스타일 격리 (CSS Module)            |
+
+---
+
+## 8. 완성된 구조 정리
+
+<Steps>
+  <Step title="트리거에서 이벤트 감지">
+    `onMouseEnter`에서 `e.currentTarget.getBoundingClientRect()`로 좌표를 읽고
+    상태에 저장합니다. `ref` 없이도 충분합니다.
+  </Step>
+  <Step title="Flip 로직으로 배치 방향 결정">
+    상단/하단/좌우 공간을 확인해 `placement`를 결정합니다. 경계를 넘지 않도록
+    x를 클램핑합니다.
+  </Step>
+  <Step title="createPortal로 document.body에 렌더">
+    `createPortal`로 DOM 트리를 탈출합니다. 어떤 조상의 `overflow`, `transform`,
+    stacking context에도 영향받지 않습니다.
+  </Step>
+  <Step title="position: fixed + 계산된 좌표 적용">
+    저장한 좌표를 `fixed` 요소의 `left`, `top`에 주입합니다. `transform:
+    translate(-50%, -100%)`로 중앙 정렬과 방향을 처리합니다.
+  </Step>
+  <Step title="스타일 명시적 선언으로 상속 오염 차단">
+    폰트, 색상, 크기를 `px` 단위로 명시 선언합니다. z-index는 레이어 상수로
+    관리합니다.
+  </Step>
+</Steps>
+
+<ProsCons>
+  <Pros title="Portal + getBoundingClientRect 방식의 장점">
+    - `overflow: hidden`, `transform` containing block, stacking context 문제를
+    모두 해결 - 트리거 요소에 별도 CSS 규칙이 필요 없음 — 어떤 요소에든 붙일 수
+    있음 - Flip 로직으로 뷰포트 경계 대응 가능 - 스타일을 완전히 격리해 디자인
+    일관성 보장 - `e.currentTarget`으로 위치를 읽어 `ref` 없이도 동작
+  </Pros>
+  <Cons title="고려할 점">
+    - CSS-only 대비 JS 실행이 필요 — 스크롤 중 재계산이 필요하면 이벤트 리스너
+    추가 - SSR 환경에서 `document.body`는 서버에 존재하지 않음 → `typeof window
+    !== "undefined"` 체크 필요 - 요소 크기가 동적으로 바뀌면 위치를 재계산해야
+    함 (`ResizeObserver` 활용) - `createPortal`은 React 트리 안에서만 동작 —
+    React 외부 코드에서는 직접 DOM을 조작해야 함
+  </Cons>
+</ProsCons>
+
+---
+
+## 핵심 요약
+
+<Callout type="success" title="정리">
+  - <Badge color="red">`overflow: hidden`</Badge> 조상은 `position: absolute`
+  툴팁을 잘라냅니다. - <Badge color="amber">`transform`</Badge> / `filter` /
+  `will-change` 조상은 새로운 containing block을 만들어 `position: fixed`조차
+  가둡니다. 시각적 변화가 없어도 마찬가지입니다. -{" "}
+  <Badge color="blue">`z-index`</Badge> 는 같은 stacking context 안에서만
+  비교됩니다. 높은 값도 다른 context의 낮은 값에 가려질 수 있습니다. -{" "}
+  <Badge color="green">`createPortal`</Badge> 은 `document.body`에 직접 마운트해
+  위 세 문제를 모두 해결합니다. - `getBoundingClientRect()`는 뷰포트 기준 좌표를
+  반환하며, `position: fixed`와 좌표 체계가 일치해 바로 사용할 수 있습니다. -
+  `onMouseEnter`의 `e.currentTarget`에서 직접 좌표를 읽으면 `ref` 없이도 위치
+  계산이 가능합니다.
+</Callout>
