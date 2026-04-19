@@ -1,0 +1,179 @@
+---
+title: "Bun — Node.js 생태계의 복잡성을 하나로"
+date: "2026-04-19"
+description: "패키지 매니저, 번들러, 테스트 러너를 각각 골라 쓰던 시대에서 All-in-one을 선언한 Bun. 탄생 배경부터 ESM 로더 최적화까지 정리합니다."
+---
+
+JavaScript 프로젝트를 시작할 때마다 반복되는 의식이 있습니다. 패키지 매니저를 고르고, 번들러를 설정하고, 테스트 러너를 붙이고, TypeScript 컴파일러를 연결합니다.
+
+<Quote>왜 런타임 하나를 쓰는데 이렇게 많은 도구가 필요한가?</Quote>
+
+Bun은 이 질문에서 출발합니다.
+
+---
+
+## Node.js 생태계가 필요로 했던 것들
+
+Bun이 무엇을 통합했는지 이해하려면, 기존에 무엇이 분리되어 있었는지를 먼저 봐야 합니다.
+
+<Tabs items={["패키지 매니저", "번들러", "테스트 러너"]}>
+  <Tab>
+    외부 라이브러리를 설치·업데이트·삭제하는 도구입니다.
+
+    ```bash
+    npm install react
+    yarn add react
+    pnpm add react
+    ```
+
+    대표 도구: `npm`, `yarn`, `pnpm`
+
+    각각 lock 파일 포맷이 다르고, 설치 속도와 디스크 사용 전략도 제각각입니다.
+  </Tab>
+  <Tab>
+    수많은 JS 파일과 자원을 브라우저·서버가 효율적으로 읽을 수 있도록 하나의 파일로 묶고 최적화하는 도구입니다.
+
+    ```js
+    // webpack.config.js, vite.config.ts, rollup.config.js...
+    // 프로젝트마다 설정 파일이 따로 존재
+    ```
+
+    대표 도구: `webpack`, `esbuild`, `Rollup`, `Vite`
+  </Tab>
+  <Tab>
+    작성한 코드가 의도대로 동작하는지 검증하는 테스트 코드를 실행하고 결과를 보고하는 도구입니다.
+
+    ```bash
+    jest --coverage
+    vitest run
+    mocha test/**/*.spec.js
+    ```
+
+    대표 도구: `Jest`, `Mocha`, `Vitest`
+  </Tab>
+</Tabs>
+
+---
+
+## 탄생 배경
+
+Bun은 <Strong>2021년</Strong> 처음 공개되었고, 정식 버전은 <Strong>2023년 9월</Strong>에 출시됐습니다.
+
+등장 이유는 크게 세 가지입니다.
+
+**1. 복잡성 해소**
+
+기존 Node.js 생태계는 번들러, 컴파일러, 패키지 매니저, 테스트 도구를 별도로 설치하고 설정해야 했습니다. Bun은 이것들을 하나로 합친 `Zero-config`를 지향합니다.
+
+**2. 성능의 한계 돌파**
+
+Node.js가 Google의 V8 엔진을 사용하는 것과 달리, Bun은 저수준 언어인 <Strong>Zig</Strong>로 작성되었고 Apple의 <Strong>JavaScriptCore(JSC)</Strong> 엔진을 채택했습니다. 빠른 시작 속도와 효율적인 메모리 관리를 목표로 합니다.
+
+**3. 네이티브 TypeScript 지원**
+
+`.ts`, `.tsx` 파일을 별도의 트랜스파일 단계 없이 즉시 실행할 수 있습니다.
+
+<Callout type="info" title="'별도의 트랜스파일 없이'의 정확한 의미">
+  오해하기 쉬운 표현입니다. V8과 JSC 모두 TypeScript 코드를 직접 실행할 수는 없습니다.
+
+  기존 방식: 개발자가 `tsc`를 명시적으로 실행 → JS 변환 → 실행
+
+  Bun의 방식: 런타임 내부에서 자동으로 변환 후 실행
+
+  즉, **변환 과정이 없어지는 게 아니라 개발자가 신경 쓸 필요가 없어지는 것**입니다.
+</Callout>
+
+---
+
+## 핵심 특징
+
+| 항목 | 내용 |
+| --- | --- |
+| **속도** | `npm` 대비 최대 20~30배 빠른 패키지 설치, 수배 빠른 HTTP 서버 성능 |
+| **엔진** | Google V8 대신 Apple JavaScriptCore(JSC) 채택 |
+| **호환성** | `Buffer`, `process`, `fs` 등 Node.js 핵심 API 및 `node_modules` 알고리즘 지원 |
+| **언어 지원** | TypeScript, JSX 기본 지원 |
+| **통합 도구** | `bun install`, `bun build`, `bun test` 내장 |
+
+<Callout type="warning" title="안정성에 대한 현실적인 시각">
+  Bun은 매우 빠르지만, 10년 이상 검증된 Node.js의 모든 엣지 케이스를 완전히 대체하기엔 아직 이릅니다.
+  특정 네이티브 C++ 확장 모듈과의 호환성 문제가 발생할 수 있으며,
+  JSC는 V8보다 시작 속도는 빠르지만 **장시간 실행되는 루프나 특정 JIT 최적화 상황에서는 V8이 더 유리**할 수 있습니다.
+</Callout>
+
+---
+
+## JS 런타임의 3세대 진화
+
+Bun의 탄생을 이해하려면 JavaScript 런타임의 역사를 짚어볼 필요가 있습니다.
+
+```
+1세대 — Node.js
+  서버 측 JS 시대를 열었습니다.
+  CommonJS 모듈 시스템, V8 엔진 기반.
+  당시의 한계가 구조에 그대로 남아 있습니다.
+
+2세대 — Deno
+  Node.js의 설계적 결함을 보완하기 위해 등장.
+  보안 모델과 ES Module 표준에 집중했습니다.
+
+3세대 — Bun
+  성능에 극단적으로 집착한 모델.
+  Zig로 수동 메모리 관리를 최적화하고,
+  I/O 성능을 극대화하기 위해 시스템 콜을 직접 최적화했습니다.
+```
+
+---
+
+## ESM 로더와 Data URL
+
+<Details summary="ESM 로더란?">
+`import`와 `export` 구문을 해석하여 모듈 간의 의존성 그래프를 생성하고, 파일을 로드해 실행하는 엔진의 구성 요소입니다.
+
+ESM은 **정적 구조**를 갖습니다. 코드를 실행하기 전에 어떤 모듈이 필요한지 모두 파악하기 때문에, 번들러가 사전 최적화를 수행할 수 있습니다.
+</Details>
+
+<Details summary="Data URL이란?">
+외부 파일을 참조하는 대신 데이터 자체를 URL 문자열 안에 인코딩하여 포함하는 방식입니다.
+
+```js
+import data from "data:text/javascript, export default 'hello'";
+```
+
+작은 스크립트나 동적으로 생성된 코드를 별도 파일 생성 없이 즉시 실행할 때 사용합니다.
+</Details>
+
+### Bun의 ESM 로더 최적화
+
+Bun은 Node.js의 직렬적 대기 시간과 시스템 콜 오버헤드를 두 가지 방식으로 해결했습니다.
+
+**병렬 분석 및 선행 로딩**
+
+Node.js는 모듈을 하나 찾고, 그 안의 `import`를 발견하면 다시 다음 파일을 찾는 방식을 반복합니다.
+
+```
+Node.js 방식 (직렬)
+  파일 A 읽기 → import B 발견 → 파일 B 읽기 → import C 발견 → ...
+
+Bun의 방식 (병렬)
+  파일 A, B, C 위치를 동시에 탐색 → 멀티코어 활용
+```
+
+**Strict ESM & Fast-path**
+
+Node.js는 "이 파일이 CommonJS인가 ESM인가?"를 판단하기 위해 여러 번 파일을 읽거나 추측하는 과정을 거칩니다. Bun은 파일 확장자와 `package.json`의 `type` 필드를 엄격히 따르되 처리 경로를 단순화하여 **시스템 호출 횟수를 줄였습니다.**
+
+### Data URL 처리 최적화
+
+<ProsCons>
+  <Pros title="Bun의 방식">
+    - Data URL을 이미 메모리에 로드된 모듈처럼 취급 - 런타임 내부 메모리에서 즉시 바이트코드로 변환 - 번들러와 연동 시 작은 에셋을 Data URL로 변환하여 파일 I/O 자체를 제거
+  </Pros>
+  <Cons title="기존 방식">
+    - 문자열 파싱 → 임시 버퍼 생성 → 스크립트 컴파일의 다단계 과정 - 단계마다 불필요한 메모리 복사 발생 - 파일 I/O가 별도로 필요
+  </Cons>
+</ProsCons>
+
+<Callout type="tip" title="결국 Bun이 빠른 이유">
+  단순히 엔진이 달라서가 아닙니다. 시스템 콜을 직접 최적화하고, 직렬 처리를 병렬로 바꾸고, 불필요한 메모리 복사를 없애는 **저수준 최적화의 합산**입니다.
+</Callout>

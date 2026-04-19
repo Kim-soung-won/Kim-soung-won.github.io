@@ -1,6 +1,6 @@
 ---
 title: "Claude Code Skill은 단순한 Mapper가 아니다"
-date: "2026-04-19"
+date: "2026-04-09"
 description: "Skill이 실행 컨텍스트를 어떻게 재구성하는지, 전문 지식의 세 종류, 우선순위 계층, Scope 분리 전략까지 정리합니다."
 ---
 
@@ -21,8 +21,8 @@ Resource와 Agent를 잇는 Mapper라고 부를 수도 있지만, <Strong>Claude
 - **모델 가중치**: 사전 학습으로 고정된 일반 지식
 
 <Callout type="info" title="Skill과 RAG의 유사점">
-  Skill은 RAG와 유사하게 모델 자체를 수정하지 않습니다. 대신 컨텍스트 윈도우에 '전문
-  지식'을 밀어 넣어, 이를 기반으로 추론하도록 유도합니다.
+  Skill은 RAG와 유사하게 모델 자체를 수정하지 않습니다. 대신 컨텍스트 윈도우에
+  '전문 지식'을 밀어 넣어, 이를 기반으로 추론하도록 유도합니다.
 </Callout>
 
 ---
@@ -81,8 +81,8 @@ print(f"현재 버전: {version}")
 ```
 
 <Callout type="tip" title="토큰 절약">
-  실행 가능한 지식의 특징은, 스크립트 코드 자체는 컨텍스트에 들어가지 않고 실행 결과만
-  들어간다는 것입니다. 토큰이 절약됩니다.
+  실행 가능한 지식의 특징은, 스크립트 코드 자체는 컨텍스트에 들어가지 않고 실행
+  결과만 들어간다는 것입니다. 토큰이 절약됩니다.
 </Callout>
 
 > 즉, 언제 무엇을 어떻게 할지, 어떤 정보를 참고할지, 어떤 방식으로 참고할지를 아는 것이 전문 지식을 갖는 것입니다.
@@ -111,20 +111,21 @@ Agent가 Skill을 읽는 메커니즘은 다음과 같습니다.
 # 세션 시작 시 — 1회만 주입되는 구조
 
 <available_skills>
-  <skill>
-    <name>docx</name>
-    <description>Word 문서 생성 및 편집. 사용자가 Word, .docx, 보고서 작성을 언급할 때 사용.</description>
-  </skill>
-  <skill>
-    <name>pdf</name>
-    <description>PDF 추출, 병합, 생성. PDF 파일 관련 요청 시.</description>
-  </skill>
+<skill>
+<name>docx</name>
+<description>Word 문서 생성 및 편집. 사용자가 Word, .docx, 보고서 작성을 언급할 때 사용.</description>
+</skill>
+<skill>
+<name>pdf</name>
+<description>PDF 추출, 병합, 생성. PDF 파일 관련 요청 시.</description>
+</skill>
 </available_skills>
 ```
 
 <Callout type="info" title="의사 결정의 주체는 Claude">
-  Skill 선택은 알고리즘적 매칭이나 코드 레벨의 의도 감지가 아닙니다.
-  전적으로 System Prompt의 description을 기반으로 <Strong>Claude의 추론 과정 안에서</Strong> 일어납니다.
+  Skill 선택은 알고리즘적 매칭이나 코드 레벨의 의도 감지가 아닙니다. 전적으로
+  System Prompt의 description을 기반으로{" "}
+  <Strong>Claude의 추론 과정 안에서</Strong> 일어납니다.
 </Callout>
 
 ---
@@ -177,10 +178,13 @@ Skill 목록은 System Prompt에 담기기 때문에, 전체를 아우르지 않
 
 <ProsCons>
   <Pros title="팀 공유 Plugin 방식">
-    - Skill을 Plugin으로 패키징해 Git에 올리고 각 레포의 settings.json에 등록 - 각 레포에서 동일한 Skill이 적용됨 - Skill 업데이트 시 한 곳만 수정 - User scope 오염 없음 - Git 버전 관리 가능
+    - Skill을 Plugin으로 패키징해 Git에 올리고 각 레포의 settings.json에 등록 -
+    각 레포에서 동일한 Skill이 적용됨 - Skill 업데이트 시 한 곳만 수정 - User
+    scope 오염 없음 - Git 버전 관리 가능
   </Pros>
   <Cons title="symlink 방식">
-    - 별도 디렉토리에 공통 Skill을 정의한 뒤 symlink - 공유 및 버전 관리가 번거로움 - 환경마다 경로가 달라질 수 있음
+    - 별도 디렉토리에 공통 Skill을 정의한 뒤 symlink - 공유 및 버전 관리가
+    번거로움 - 환경마다 경로가 달라질 수 있음
   </Cons>
 </ProsCons>
 
@@ -240,6 +244,7 @@ Plugin으로 공유하는 Skill이 로컬 절대경로를 참조하면 어떻게
     2. sharedPackage 값으로 package.json에서 버전 확인
     3. remotes 목록 순회하며 버전 일치 여부 검증
     ```
+
   </Tab>
 </Tabs>
 
@@ -249,17 +254,17 @@ Plugin으로 공유하는 Skill이 로컬 절대경로를 참조하면 어떻게
 
 그렇다면 Skill이 참조하는 데이터를 형상관리 시스템(GitLab 등)에서 읽어오는 방식은 어떨까요?
 
-| 항목 | 로컬 Read | GitLab API |
-| --- | --- | --- |
-| **접근 방식** | 파일시스템 직접 | HTTP 요청 |
-| **인증** | 없음 | Token 필요 |
-| **단일 파일 속도** | ~0ms | 네트워크 레이턴시 1회 |
-| **복수 파일 속도** | 여전히 ~0ms | 레이턴시 × 파일 수 (순차 시) |
-| **병렬 읽기** | Tool 여러 번 동시 호출 가능 | API rate limit 존재 |
-| **파일 탐색** | Glob으로 패턴 매칭 가능 | directory tree API 먼저 호출 후 개별 fetch |
-| **최신성** | WIP 포함 | push된 내용만 |
-| **오프라인** | 가능 | 불가 |
-| **보안** | 로컬 권한 그대로 | Token 노출 위험 |
+| 항목               | 로컬 Read                   | GitLab API                                 |
+| ------------------ | --------------------------- | ------------------------------------------ |
+| **접근 방식**      | 파일시스템 직접             | HTTP 요청                                  |
+| **인증**           | 없음                        | Token 필요                                 |
+| **단일 파일 속도** | ~0ms                        | 네트워크 레이턴시 1회                      |
+| **복수 파일 속도** | 여전히 ~0ms                 | 레이턴시 × 파일 수 (순차 시)               |
+| **병렬 읽기**      | Tool 여러 번 동시 호출 가능 | API rate limit 존재                        |
+| **파일 탐색**      | Glob으로 패턴 매칭 가능     | directory tree API 먼저 호출 후 개별 fetch |
+| **최신성**         | WIP 포함                    | push된 내용만                              |
+| **오프라인**       | 가능                        | 불가                                       |
+| **보안**           | 로컬 권한 그대로            | Token 노출 위험                            |
 
 **복수 파일에서 증폭되는 문제**
 
@@ -273,6 +278,7 @@ index.tsx 읽기
 로컬 환경이라면 단순 읽기만 반복하면 되지만, GitLab을 참조하면 API 호출이 그 자리를 대체합니다. 호출 횟수는 선형으로 늘어나고 rate limit에 걸릴 가능성도 생깁니다.
 
 <Callout type="warning" title="혼용 전략이 핵심">
-  GitLab 참조를 단독으로 사용하는 것은 무리가 있습니다. **로컬에서 읽을 수 있는 것은 로컬에서
-  읽고, 형상관리가 필요한 공유 데이터만 원격에서 가져오는 혼용 전략**이 현실적입니다.
+  GitLab 참조를 단독으로 사용하는 것은 무리가 있습니다. **로컬에서 읽을 수 있는
+  것은 로컬에서 읽고, 형상관리가 필요한 공유 데이터만 원격에서 가져오는 혼용
+  전략**이 현실적입니다.
 </Callout>
