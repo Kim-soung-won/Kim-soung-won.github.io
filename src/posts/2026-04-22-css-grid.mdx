@@ -1,0 +1,211 @@
+---
+title: "CSS Grid — stretch가 작동하는 방식과 높이 상속의 함정"
+date: "2026-04-22"
+description: "Grid Item은 늘어났는데 자식은 왜 안 늘어날까. align-items: stretch의 동작 원리, Indefinite Height 문제, 그리고 중첩 Grid 해결책까지."
+---
+
+CSS Grid는 웹 레이아웃의 역사를 바꾼 도구입니다. 하지만 막상 쓰다 보면 당황스러운 순간이 있습니다.
+
+<Quote>Grid Item은 분명히 늘어났는데, 그 안의 자식은 왜 높이를 못 채울까?</Quote>
+
+이 질문에 답하려면 Grid Track 크기 결정과 아이템 정렬이라는 두 메커니즘을 함께 이해해야 합니다.
+
+---
+
+## 레이아웃 기술의 역사
+
+CSS Grid가 왜 필요했는지 이해하려면 이전까지의 레이아웃 방식을 봐야 합니다.
+
+| 방식 | 문제 |
+| --- | --- |
+| **Table Layout** | 데이터 표시용 `<table>` 태그를 레이아웃에 억지로 사용. 시맨틱에 어긋남 |
+| **Float & Positioning** | 이미지 주변 텍스트 흐름 제어용이던 `float`를 레이아웃에 전용. `clearfix` 같은 편법이 난무 |
+| **Flexbox** | 1차원(행 또는 열) 레이아웃엔 훌륭하지만, 2차원 격자 레이아웃을 표현하기엔 한계 |
+
+<Callout type="info" title="CSS Grid의 탄생">
+  CSS Grid는 <Strong>2011년 Microsoft의 제안</Strong>에서 시작되었습니다. IE10에 처음 실험적으로 도입되었고, 이후 W3C 표준으로 채택되어 <Strong>2017년</Strong> 현대 브라우저 대부분에 탑재됩니다.
+
+  디자인 소프트웨어의 '그리드 시스템'을 브라우저 엔진에 직접 구현하려는 시도였습니다.
+</Callout>
+
+---
+
+## Grid Track 높이는 어떻게 결정되는가
+
+Grid의 행 높이는 그 행에 속한 아이템 중 **가장 높은 요소의 콘텐츠**를 기준으로 결정됩니다. CSS 용어로 `max-content sizing`이라고 합니다.
+
+```
+행 높이 결정 순서
+
+1. 브라우저가 한 행의 모든 아이템 높이를 계산
+2. 가장 높은 아이템 기준으로 "Grid Row Track" 높이 확정
+3. 나머지 짧은 아이템들은 확정된 트랙 높이 안에 배치
+```
+
+```
+┌──────────┬──────────┬──────────┐  ← Row Track 높이 = 아이템 C 기준
+│  Item A  │  Item B  │  Item C  │
+│          │          │  (가장   │
+│          │          │   높음)  │
+└──────────┴──────────┴──────────┘
+```
+
+---
+
+## align-items: stretch의 동작 원리
+
+`align-items: stretch`는 Grid Container의 **기본값**입니다. 이 속성이 어떻게 작동하는지 이해하려면 Grid Area와 Grid Item의 차이를 알아야 합니다.
+
+**동작 단계**
+
+1. Grid 알고리즘이 각 행(Row)의 최대 콘텐츠 높이를 계산합니다.
+2. `stretch`가 적용된 경우, 아이템의 Border-box를 계산된 행 높이에 맞춥니다.
+3. 아이템에 명시적 `height`가 설정되어 있다면 `stretch`는 무시됩니다.
+
+```css
+.container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  /* align-items: stretch; ← 기본값, 생략해도 동일 */
+}
+```
+
+```
+stretch 적용 후
+
+┌──────────┬──────────┬──────────┐
+│  Item A  │  Item B  │  Item C  │
+│  (늘어남)│  (늘어남)│  (원래)  │
+│          │          │          │
+└──────────┴──────────┴──────────┘
+```
+
+<Callout type="tip" title="Grid Item에는 height: 100%가 필요 없습니다">
+  `align-items: stretch`가 설정되어 있다면 브라우저가 이미 아이템 높이를 트랙에 맞게 강제로 늘립니다.
+  Grid Item에 `height: 100%`를 따로 줄 필요가 없습니다.
+</Callout>
+
+---
+
+## 자식은 늘어났는데, 손자는 왜 안 늘어날까
+
+많은 개발자가 겪는 문제입니다. Grid Item(자식)은 stretch로 늘어났는데, 그 내부의 `<div>`(손자)는 콘텐츠 크기만큼만 자리잡습니다.
+
+**원인: stretch는 명시적 높이가 아니다**
+
+CSS 명세상, `stretch`로 늘어난 높이는 **계산된(computed) 높이**이지 **명시적(explicit) 높이**가 아닙니다. 자식 요소가 `height: 100%`를 사용할 때, 부모의 높이가 명시적으로 확정되지 않으면 상속이 제대로 일어나지 않습니다.
+
+```
+Grid Item (stretch로 늘어남 — 시각적으로는 꽉 참)
+  └── 손자 <div> (height: 100% → 부모 높이가 "확정"이 아니므로 무시)
+        → 콘텐츠 크기만큼만 렌더링됨
+```
+
+---
+
+## Indefinite Height 문제
+
+`height: 100%`를 손자에게 주면 될 것 같지만, 단정 짓기엔 위험합니다.
+
+**문제 상황**
+
+CSS에서 `%` 단위는 부모의 높이가 명시적으로 정해져 있을 때만 제대로 작동합니다.
+
+- Grid Container의 높이가 `auto`이고 내부 콘텐츠에 의해 결정될 때, Grid Item은 `stretch`로 시각적으로 늘어납니다.
+- 하지만 브라우저는 이 늘어난 높이를 **확정적(definite)**이라고 판단하지 않을 때가 있습니다.
+- 이때 손자에 `height: 100%`를 주면 부모 높이를 `0` 또는 콘텐츠 최소 높이로 인식해 정렬이 깨질 수 있습니다.
+
+<Callout type="warning" title="Indefinite Height">
+  CSS 명세에서 높이가 확정되지 않은 상태를 **Indefinite Height**라고 합니다.
+  Grid Container에 명시적 높이(`px`, `vh` 등)가 없으면 내부 아이템의 `height: 100%`는 예측 불가능하게 동작합니다.
+</Callout>
+
+```css
+/* 동작이 불안정한 패턴 */
+.container {
+  display: grid;
+  /* height 없음 → Indefinite Height */
+}
+
+.item > .child {
+  height: 100%; /* 브라우저에 따라 0이 될 수 있음 */
+}
+```
+
+---
+
+## 가장 확실한 해결책: 중첩 Grid
+
+`height: 100%`라는 수치에 의존하기보다, **레이아웃 컨텍스트를 하위로 전파**하는 것이 현대적인 방식입니다.
+
+<Tabs items={["중첩 Grid (권장)", "height: 100% (불안정)", "Flexbox 중첩"]}>
+  <Tab>
+    Grid Item에도 `display: grid`를 부여하면 손자가 새로운 Grid 컨텍스트 안에서 안정적으로 배치됩니다.
+
+    ```css
+    .container {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .item {
+      display: grid;        /* Grid Item이 동시에 Grid Container */
+      grid-template-rows: 1fr;  /* 손자가 전체 높이를 채움 */
+    }
+
+    .grandchild {
+      /* height: 100% 불필요 — Grid가 대신 처리 */
+    }
+    ```
+
+    Grid 컨텍스트는 명시적 높이 없이도 **확정적 높이를 하위로 전파**합니다.
+  </Tab>
+  <Tab>
+    ```css
+    .item {
+      /* stretch로 늘어나지만 — Indefinite Height 문제 존재 */
+    }
+
+    .grandchild {
+      height: 100%; /* 브라우저·상황에 따라 0이 될 수 있음 */
+    }
+    ```
+
+    Grid Container에 명시적 높이가 없으면 예측 불가능합니다.
+    특히 Safari와 일부 브라우저 버전에서 다르게 동작합니다.
+
+    <Callout type="warning" title="사용 시 주의">
+      `height: 100%`는 Grid Container에 `height: 500px`, `height: 100vh` 등 명시적 높이가 있을 때는 잘 작동합니다. 높이가 `auto`인 경우엔 중첩 Grid를 우선 고려하세요.
+    </Callout>
+  </Tab>
+  <Tab>
+    Grid Item을 Flexbox Container로 만들어도 유사한 효과를 얻을 수 있습니다.
+
+    ```css
+    .item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .grandchild {
+      flex: 1; /* 남은 공간 전부 차지 */
+    }
+    ```
+
+    Flexbox는 자신의 크기를 기준으로 자식을 배치하기 때문에
+    `height: 100%`의 모호함 없이 공간을 나눌 수 있습니다.
+  </Tab>
+</Tabs>
+
+---
+
+## 정리
+
+<Callout type="tip" title="Grid 높이 관련 핵심 규칙">
+  - Grid Item 자체에는 `height: 100%` 불필요 — `stretch`가 이미 처리
+  - Grid Item 내부 손자에 `height: 100%`는 **Indefinite Height** 상황에서 깨질 수 있음
+  - 가장 안전한 방법은 **중첩 Grid** 또는 **Flexbox** — `%` 계산에 의존하지 않음
+  - Grid Container에 명시적 높이(`px`, `vh`)가 있다면 `height: 100%`도 안정적으로 동작
+</Callout>
+
+역사적으로 웹 레이아웃은 `%` 계산의 모호함을 해결하는 방향으로 발전해 왔습니다. `height: 100%`에 의존하는 대신 레이아웃 컨텍스트를 아래로 전파하는 것이 현대 CSS의 표준적인 접근입니다.
