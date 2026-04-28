@@ -1,0 +1,261 @@
+---
+title: "프론트엔드 테스트는 백엔드와 무엇이 다른가"
+date: "2026-04-28"
+description: "Testing Trophy, RTL의 행동 기반 철학, 비동기 처리, 그리고 네트워크 계층을 가로채는 MSW까지. 백엔드 경험을 가진 개발자를 위한 프론트엔드 테스트 가이드."
+---
+
+백엔드와 프론트엔드 테스트는 같은 철학을 갖고 서로 다른 대상을 바라봅니다. 그래서 접근 방식이 꽤 다릅니다.
+
+<Quote>
+  입력과 출력이 명확한 함수를 검증하는 것과, 렌더링된 화면을 검증하는 것은
+  본질적으로 다른 문제다.
+</Quote>
+
+---
+
+## 테스트 대상의 본질적 차이
+
+<ProsCons>
+  <Pros title="백엔드 (Spring)">
+    - 입력 → 처리 → 출력이 명확한 결정적 함수 - `UserService.findById` → `User`
+    객체 반환 - Side Effect는 주로 DB, 외부 API 호출 수준 - 테스트 피라미드가 잘
+    맞음
+  </Pros>
+  <Cons title="프론트엔드 (React)">
+    - 테스트 대상이 **렌더링된 UI + 사용자 상호작용 + 비동기 상태**의 복합체 -
+    버튼 클릭 → 상태 변경 → 리렌더링 → DOM 업데이트 → 사용자에게 보임 - "결과"가
+    반환 값이 아닌 DOM 트리, 텍스트, ARIA 속성 같은 시각적 산출물
+  </Cons>
+</ProsCons>
+
+이 차이 때문에 프론트엔드에서는 Kent C. Dodds가 주창한 <Strong>Testing Trophy</Strong> 모델이 사실상 표준이 됩니다.
+
+![레이어](/imgs/test-front-back.png)
+
+<Callout type="info" title="왜 통합 테스트가 중심인가">
+  버튼 컴포넌트 하나를 단위 테스트해봤자 의미가 적습니다. **사용자가 폼을 채우고
+  제출했을 때 에러 메시지가 뜨는가?** 같은 통합적 동작이 실제로 가치 있는
+  테스트입니다. TypeScript와 ESLint 같은 정적 분석이 단위 테스트의 상당 부분을
+  이미 대체하고 있습니다.
+</Callout>
+
+---
+
+## 도구 스택 비교
+
+| 영역                 | Spring                          | React                                   |
+| -------------------- | ------------------------------- | --------------------------------------- |
+| **테스트 러너**      | JUnit 5                         | Vitest / Jest                           |
+| **어서션**           | AssertJ, Hamcrest               | `expect` + `@testing-library/jest-dom`  |
+| **Mocking**          | Mockito (`@MockBean`)           | **MSW** (네트워크) / `vi.mock()` (모듈) |
+| **렌더링 환경**      | `@SpringBootTest` (DI 컨테이너) | `@testing-library/react`                |
+| **DB / 외부 의존성** | Testcontainers, H2              | MSW로 API 모킹                          |
+| **E2E**              | Selenium                        | **Playwright** (대세), Cypress          |
+
+<Callout type="tip" title="가장 큰 인식 변화">
+  Spring에서 `@MockBean`으로 의존성을 주입했다면, 프론트엔드에서는 **MSW**로
+  네트워크 응답 자체를 가로채는 방식이 표준입니다. 모킹의 레이어가 다릅니다.
+</Callout>
+
+---
+
+## 테스트 철학: 구현 vs 행동
+
+백엔드 단위 테스트는 "구현을 검증"하는 경향이 강합니다.
+
+```java
+// 이 메서드가 호출되었는지, 어떤 인자로 호출되었는지 검증
+verify(userRepository).findById(eq(1L));
+verify(emailService).send(any(Email.class));
+```
+
+React Testing Library(RTL)의 철학은 정반대입니다. **"사용자 관점의 행동만 검증하라."**
+
+```jsx
+// ❌ 컴포넌트 내부 state를 들여다봄
+expect(wrapper.state("isLoading")).toBe(true);
+
+// ✅ 사용자가 보는 것만 검증
+expect(screen.getByText("로딩 중...")).toBeInTheDocument();
+```
+
+**왜 이렇게 다를까?**
+
+프론트엔드 코드는 리팩터링 빈도가 압도적으로 높습니다. 컴포넌트 구조, 상태 관리 라이브러리(`useState` → `Zustand` → `Jotai`), 스타일링 방식이 자주 바뀝니다. 구현을 검증하는 테스트는 리팩터링할 때마다 깨집니다.
+
+RTL은 이 문제를 프레임워크 차원에서 강제합니다. 내부 state, props 전파, 함수 호출 여부를 검증하는 API를 의도적으로 제공하지 않습니다.
+
+<Callout type="warning" title="RTL 철학의 양면성">
+  이 접근은 이상적이지만, 복잡한 커스텀 훅이나 상태 머신은 RTL만으로 테스트하기
+  어렵습니다. 그럴 땐 `renderHook` 또는 별도의 단위 테스트가 필요합니다.
+</Callout>
+
+---
+
+## 비동기 처리 — 가장 큰 실무의 함정
+
+Spring에서는 메서드 호출이 동기적으로 끝난 뒤 결과를 검증하면 됩니다. 프론트엔드는 다릅니다.
+
+```
+클릭 → 상태 변경 → 비동기 fetch → 응답 → 리렌더링 → DOM 업데이트
+```
+
+이 흐름이 모두 완료된 후 DOM을 검증해야 합니다.
+
+```jsx
+await userEvent.click(submitButton);
+
+// ❌ 아직 비동기 작업이 끝나지 않음
+expect(screen.getByText("성공")).toBeInTheDocument();
+
+// ✅ findBy*: DOM에 나타날 때까지 대기 (기본 1초 타임아웃)
+expect(await screen.findByText("성공")).toBeInTheDocument();
+
+// ✅ waitFor: 조건이 만족될 때까지 폴링
+await waitFor(() => {
+  expect(mockApi).toHaveBeenCalledTimes(1);
+});
+```
+
+<Callout type="info" title="getBy vs findBy vs waitFor">
+
+| 쿼리      | 동기/비동기    | 용도                           |
+| --------- | -------------- | ------------------------------ |
+| `getBy*`  | 동기           | 즉시 존재해야 하는 요소        |
+| `findBy*` | 비동기 (await) | 나중에 나타나는 요소           |
+| `waitFor` | 비동기 (await) | 특정 조건이 만족될 때까지 대기 |
+
+</Callout>
+
+---
+
+## MSW — 네트워크를 가로채는 라이브러리
+
+MSW(Mock Service Worker)는 단순히 가짜 데이터를 리턴하는 도구를 넘어, 현대 프론트엔드 개발 워크플로우를 바꾼 라이브러리입니다.
+
+### 핵심 작동 원리
+
+MSW의 핵심은 **서비스 워커**를 활용한다는 점입니다. 애플리케이션 코드가 아닌 브라우저와 네트워크 사이에서 요청을 가로챕니다.
+
+```
+브라우저 환경
+
+App (fetch 호출)
+  ↓
+Service Worker (MSW가 등록)  ← 여기서 가로챔
+  ↓ 핸들러 매칭 시 가짜 응답 반환
+  ↓ 매칭 없으면 실제 서버로 통과
+실제 서버
+```
+
+<Callout type="tip" title="Network 탭에도 기록이 남는다">
+  브라우저의 Network 탭을 열어보면 실제로 요청이 가고 응답이 온 것처럼
+  기록됩니다. 개발자 도구 수준에서도 실제 서버와 통신하는 것과 동일한 경험을
+  제공합니다.
+</Callout>
+
+Node.js 테스트 환경(Vitest, Jest)에서는 서비스 워커를 사용할 수 없습니다. MSW는 대신 Node.js의 저수준 네트워크 모듈을 확장해 동일하게 네트워크 계층에서 가로챕니다.
+
+---
+
+### 3대 구성 요소
+
+**1. Handler — 요청 정의**
+
+어떤 요청을 가로챌지 정의합니다. Express.js 라우터와 흡사합니다.
+
+```tsx
+import { http, HttpResponse } from "msw";
+
+export const handlers = [
+  http.get("/api/user", () => {
+    return HttpResponse.json({ name: "Gemini" });
+  }),
+];
+```
+
+**2. Worker / Server — 실행 설정**
+
+<Tabs items={["브라우저 (setupWorker)", "Node.js (setupServer)"]}>
+  <Tab>
+    ```tsx
+    import { setupWorker } from "msw/browser";
+    import { handlers } from "./handlers";
+
+    export const worker = setupWorker(...handlers);
+    ```
+
+  </Tab>
+  <Tab>
+    ```tsx
+    import { setupServer } from "msw/node";
+    import { handlers } from "./handlers";
+
+    export const server = setupServer(...handlers);
+    ```
+
+  </Tab>
+</Tabs>
+
+**3. Integration — 환경에 연결**
+
+<Tabs items={["개발 서버 (main.tsx)", "테스트 (vitest.setup.ts)"]}>
+  <Tab>
+    애플리케이션 시작 시 개발 모드에서만 MSW를 활성화합니다.
+
+    ```tsx
+    async function enableMocking() {
+      if (process.env.NODE_ENV !== "development") return;
+
+      const { worker } = await import("./mocks/browser");
+      return worker.start({
+        onUnhandledRequest: "bypass", // 핸들러 없는 요청은 실제 서버로 통과
+      });
+    }
+
+    enableMocking().then(() => {
+      ReactDOM.createRoot(document.getElementById("root")!).render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
+      );
+    });
+    ```
+
+  </Tab>
+  <Tab>
+    각 테스트가 독립적으로 실행되도록 핸들러를 초기화합니다.
+
+    ```tsx
+    import { beforeAll, afterEach, afterAll } from "vitest";
+    import { server } from "./src/mocks/server";
+
+    beforeAll(() => server.listen());
+    afterEach(() => server.resetHandlers()); // 테스트 간 간섭 방지
+    afterAll(() => server.close());
+    ```
+
+  </Tab>
+</Tabs>
+
+---
+
+### MSW가 제공하는 결정적 이점
+
+<Callout type="tip" title="에러 상황을 자유롭게 재현할 수 있다">
+  서버의 500 에러, 403 권한 부족, 네트워크 지연을 코드 몇 줄로 시뮬레이션합니다.
+
+```tsx
+http.get("/api/data", async () => {
+  await delay(2000); // 2초 지연
+  return new HttpResponse(null, { status: 500 }); // 서버 에러
+});
+```
+
+실제 서버를 제어할 수 없는 상황에서도 모든 엣지 케이스를 테스트할 수 있습니다.
+
+</Callout>
+
+1. **백엔드 의존성 제거**: API 명세만 있으면 백엔드 완성을 기다리지 않고 프론트엔드 개발을 완료할 수 있습니다.
+2. **테스트 안정성**: `vi.mock`은 모듈을 모킹하지만, MSW는 네트워크 계층을 모킹합니다. 구현 코드를 전혀 수정하지 않고 테스트가 동작합니다.
+3. **에러 재현 자유도**: 500, 403, 타임아웃 등 모든 엣지 케이스를 핸들러 한 줄로 시뮬레이션합니다.
