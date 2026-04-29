@@ -1,0 +1,271 @@
+---
+title: "Apache ECharts — option 객체로 읽는 차트 설계"
+date: "2026-04-29"
+description: "선언적 API, 다중 렌더러, 대용량 데이터 처리까지. ECharts의 구조와 option 설계 철학, 그리고 Series·Dataset·VisualMap의 핵심 패턴을 정리합니다."
+---
+
+Apache ECharts는 원래 중국 Baidu에서 시작된 오픈소스 데이터 시각화 라이브러리입니다. 현재는 Apache 재단에서 관리되며 가장 널리 쓰이는 웹 차트 라이브러리 중 하나입니다.
+
+<Quote>차트 = 좌표계 + 데이터 + 시각 매핑의 조합이다.</Quote>
+
+---
+
+## 핵심 특성
+
+**1. 선언적 API (Declarative)**
+
+`option` 객체에 차트의 전체 명세(데이터, 축, 시리즈, 툴팁 등)를 선언하면 ECharts가 렌더링을 처리합니다. React의 JSX처럼 "어떻게 그릴지"가 아닌 **"무엇을 그릴지"를 기술합니다.** `option` 객체가 차트의 Schema 역할을 합니다.
+
+**2. 다중 렌더러 지원**
+
+Canvas, SVG, VML 렌더링을 모두 지원합니다.
+
+| 렌더러 | 적합한 상황 |
+| --- | --- |
+| **Canvas** | 대용량 데이터, 애니메이션이 많은 경우 |
+| **SVG** | 모바일 환경, 메모리 절감이 필요한 경우 |
+| **VML** | 구형 IE 환경 (레거시) |
+
+JPA가 같은 Entity를 여러 RDBMS에 보낼 수 있는 것처럼, 동일한 `option` 명세를 서로 다른 렌더러로 출력합니다.
+
+**3. 대용량 데이터 처리**
+
+- `TypedArray` 지원으로 일반 배열보다 메모리를 적게 사용하고 GC 친화적
+- v4.0부터 Incremental Rendering으로 수천만 건의 데이터 시각화 가능
+- WebSocket 스트리밍 기반 렌더링 내장 지원
+
+**4. SSR**
+
+`node-canvas`와 함께 Node.js에서 서버 사이드 렌더링이 가능하고, WeChat 미니앱 렌더링도 지원합니다.
+
+---
+
+## 경쟁 라이브러리와의 비교
+
+| 측면 | 장점 | 주의점 |
+| --- | --- | --- |
+| **차트 다양성** | 30+ 차트 타입 기본 제공 (Sankey, Sunburst, Graph, GL 3D 등) | 번들 사이즈 큼 (full build ~1MB) — tree-shaking 필수 |
+| **API 스타일** | 선언적 option 객체로 일관성 높음 | option 스키마가 방대해 학습 곡선이 가파름 |
+| **React 통합** | `echarts-for-react` 래퍼 존재 | React의 reconciliation과 다른 mental model — `useEffect` 의존성 관리 까다로움 |
+| **TypeScript** | v5+부터 타입 정의 지원 | option 객체의 union type이 복잡해 IDE 자동완성이 무거움 |
+| **커스터마이징** | `custom series`로 거의 모든 시각화 표현 가능 | 저수준 커스텀은 zrender 학습이 필요 |
+| **MFE 환경** | 단일 라이브러리로 전역 제공 가능 | Module Federation singleton 설정 필요 — 미설정 시 번들 중복으로 메모리 낭비 |
+
+---
+
+## option 모델 — "option은 하나의 명세서다"
+
+![ECharts option 구조](/imgs/echart.png)
+
+option 설계가 방대해 보이는 이유는 세 가지 역할 그룹이 하나의 Object에 섞이기 때문입니다.
+
+```
+좌표계 그룹    grid, xAxis, yAxis, polar, geo ...
+데이터 그룹    dataset, series ...
+인터랙션 그룹  tooltip, legend, dataZoom, toolbox ...
+```
+
+이 그룹을 먼저 인식하면 낯선 옵션이 나와도 "아, 이건 인터랙션 그룹이구나" 하고 맥락이 잡힙니다.
+
+<Callout type="tip" title="가장 중요한 관계">
+  좌표계(`grid`, `xAxis`, `yAxis`)와 시리즈(`series`)는 분리되어 있습니다.
+  시리즈가 좌표계를 `gridIndex`, `xAxisIndex`로 **참조**하는 구조입니다.
+</Callout>
+
+---
+
+## Series 공통 구조
+
+모든 Series 타입은 아래 구조를 공유합니다.
+
+```tsx
+series: [{
+  type: '...',        // 차트 타입 — 시리즈의 "클래스"를 결정
+  data: [...],        // 데이터
+  encode: {...},      // 데이터 → 축 매핑 (dataset 사용 시)
+
+  // 스타일 3계층
+  itemStyle: {...},   // 개별 데이터 포인트 기본 스타일
+  emphasis: {...},    // hover 시 스타일
+  select: {...},      // 선택 시 스타일
+
+  // 좌표계 참조
+  xAxisIndex: 0,      // 어느 xAxis를 쓸지
+  yAxisIndex: 0,
+}]
+```
+
+<Callout type="info" title="스타일 3계층 패턴">
+  `itemStyle` → `emphasis` → `select` 패턴은 모든 시리즈 타입에서 동일하게 반복됩니다.
+  한 번 익히면 다른 차트 타입에도 그대로 적용됩니다.
+</Callout>
+
+---
+
+## 데이터 포맷: 두 가지 방식
+
+<Tabs items={["Series 직접 주입", "dataset 사용 (권장)"]}>
+  <Tab>
+    단순하고 소규모 차트에 적합합니다.
+
+    ```tsx
+    // xAxis에 카테고리를 직접 선언
+    // series.data는 그 순서에 대응하는 값 배열
+    xAxis: { data: ['Mon', 'Tue', 'Wed'] },
+    series: [{
+      type: 'bar',
+      data: [120, 200, 150]  // xAxis.data[i] ↔ data[i] 암묵적 매핑
+    }]
+    ```
+
+    데이터와 축이 암묵적으로 연결되어 여러 시리즈가 생기면 관리가 어려워집니다.
+  </Tab>
+  <Tab>
+    멀티 시리즈 공유 및 명시적 매핑이 가능합니다.
+
+    ```tsx
+    dataset: {
+      source: [
+        ['day', 'sales', 'clicks'],
+        ['Mon', 120, 300],
+        ['Tue', 200, 450],
+        ['Wed', 150, 390],
+      ]
+    },
+    xAxis: { type: 'category' },
+    yAxis: { type: 'value' },
+    series: [
+      { type: 'bar',  encode: { x: 'day', y: 'sales' } },
+      { type: 'line', encode: { x: 'day', y: 'clicks' } }
+      // dataset을 두 시리즈가 공유 — 데이터 중복 없음
+    ]
+    ```
+
+    `encode`로 어느 컬럼을 어느 축에 쓸지 **명시적**으로 선언하므로 유지보수가 쉽습니다.
+  </Tab>
+</Tabs>
+
+---
+
+## LineChart 핵심 옵션
+
+```tsx
+series: [{
+  type: 'line',
+  smooth: true,          // 곡선 보간 (boolean 또는 0~1 tension값)
+  areaStyle: {},         // 선 아래 면적 채우기 — 빈 객체면 기본 색
+
+  stack: 'total',        // 같은 stack 값끼리 누적
+
+  // 데이터 포인트 마커
+  symbol: 'circle',      // 'none'으로 숨길 수 있음
+  symbolSize: 6,
+
+  // 라인 스타일
+  lineStyle: { width: 2, type: 'dashed' },
+
+  // 기준선 / 기준 영역 표시
+  markLine: {
+    data: [{ type: 'average', name: '평균' }]
+  },
+  markArea: {
+    data: [[{ xAxis: 'Tue' }, { xAxis: 'Wed' }]]
+  }
+}]
+```
+
+---
+
+## BarChart 핵심 옵션
+
+```tsx
+series: [{
+  type: 'bar',
+  stack: 'total',        // 누적 막대
+
+  // 막대 모양
+  barWidth: '60%',       // 비율 또는 px
+  barMaxWidth: 40,
+  itemStyle: {
+    borderRadius: [4, 4, 0, 0],  // 상단 모서리만 둥글게
+  },
+
+  // 라벨
+  label: {
+    show: true,
+    position: 'top',     // 'inside', 'insideBottom', 'top'
+    formatter: '{c}',    // {a}=시리즈명, {b}=카테고리, {c}=값
+  },
+
+  // 배경 (v4.7+)
+  showBackground: true,
+  backgroundStyle: { color: 'rgba(0,0,0,0.04)' },
+}]
+```
+
+---
+
+## 심화: Scatter + 다차원 데이터
+
+Scatter부터는 데이터 차원에 대한 개념이 필요합니다. Line, Bar에서 데이터는 1차원 값 하나지만, Scatter는 진짜 다차원 데이터를 다룹니다.
+
+```tsx
+// Line / Bar — 값 하나
+data: [120, 200, 150]
+
+// Scatter — 점 하나 = [x, y]
+data: [
+  [3.4, 4.2],
+  [1.1, 8.5],
+]
+
+// Scatter — 점 하나 = [x, y, value]
+// 3번째 차원을 symbolSize나 색상에 매핑 가능
+data: [
+  [3.4, 4.2, 80],  // 80 = 크기 또는 색상 강도
+  [1.1, 8.5, 20],
+]
+```
+
+dataset 방식을 쓰면 각 차원에 이름을 붙이고 `encode`로 명시적으로 선택할 수 있습니다.
+
+```tsx
+dataset: {
+  dimensions: ['응답시간', '정확도', '요청수', '모델명'],
+  source: [
+    [120, 0.94, 800,  'GPT-4'],
+    [45,  0.87, 2400, 'Claude'],
+    [200, 0.91, 300,  'Gemini'],
+  ]
+},
+series: [{
+  type: 'scatter',
+  encode: {
+    x: '응답시간',
+    y: '정확도',
+    symbolSize: '요청수',  // 버블 크기
+    tooltip: ['모델명', '응답시간', '정확도']
+  }
+}]
+```
+
+<Callout type="info" title="Scatter의 축 타입">
+  Scatter 차트는 xAxis, yAxis 모두 `type: 'value'`입니다.
+  Line, Bar에서 쓰던 `type: 'category'` 축이 없습니다.
+  두 축 모두 연속적인 수치 데이터를 받습니다.
+</Callout>
+
+<Callout type="tip" title="VisualMap으로 3번째 차원 표현하기">
+  `visualMap` 컴포넌트를 추가하면 3번째 차원 값을 색상 그라데이션이나 크기로 자동 매핑할 수 있습니다.
+
+  ```tsx
+  visualMap: {
+    min: 0,
+    max: 100,
+    dimension: 2,           // data[2] 값을 기준으로
+    inRange: {
+      color: ['#50a3ba', '#eac736', '#d94e5d']  // 저→고 색상
+    }
+  }
+  ```
+</Callout>
