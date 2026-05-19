@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import matter from 'gray-matter';
+import { resolveCategory } from './categories';
+
+export { CATEGORIES, resolveCategory } from './categories';
 
 const postsDirectory = path.join(process.cwd(), '/src/posts');
 
@@ -9,7 +12,15 @@ export interface PostData {
   title: string;
   date: string;
   description: string;
-  content: string; // HTML이 아니라 원본 마크다운을 그대로 가져갑니다.
+  content: string;
+  category: string;
+  readMin: number;
+}
+
+/* 본문 길이 기준으로 대략적인 읽기 시간 (분) */
+function estimateReadMin(content: string): number {
+  const chars = content.replace(/```[\s\S]*?```/g, '').length;
+  return Math.max(3, Math.round(chars / 700));
 }
 
 export function getSortedPostsData(): PostData[] {
@@ -21,11 +32,16 @@ export function getSortedPostsData(): PostData[] {
     const fullPath = path.join(postsDirectory, fileName);
     const fileContents = fs.readFileSync(fullPath, 'utf8');
     const matterResult = matter(fileContents);
+    const fm = matterResult.data as { title: string; date: string; description: string; category?: string };
 
     return {
       id,
-      ...(matterResult.data as { title: string; date: string; description: string }),
-      content: matterResult.content, // content를 그대로 반환
+      title: fm.title,
+      date: fm.date,
+      description: fm.description,
+      content: matterResult.content,
+      category: resolveCategory(id, fm.category),
+      readMin: estimateReadMin(matterResult.content),
     };
   });
 
@@ -33,18 +49,28 @@ export function getSortedPostsData(): PostData[] {
 }
 
 export async function getPostData(id: string): Promise<PostData> {
-  // .mdx 또는 .md 파일 찾기
   let fullPath = path.join(postsDirectory, `${id}.mdx`);
   if (!fs.existsSync(fullPath)) {
     fullPath = path.join(postsDirectory, `${id}.md`);
   }
-  
   const fileContents = fs.readFileSync(fullPath, 'utf8');
   const matterResult = matter(fileContents);
+  const fm = matterResult.data as { title: string; date: string; description: string; category?: string };
 
   return {
     id,
-    content: matterResult.content, // 변환 없이 원본 반환
-    ...(matterResult.data as { title: string; date: string; description: string }),
+    title: fm.title,
+    date: fm.date,
+    description: fm.description,
+    content: matterResult.content,
+    category: resolveCategory(id, fm.category),
+    readMin: estimateReadMin(matterResult.content),
   };
+}
+
+export function getCategoryCounts(): Record<string, number> {
+  return getSortedPostsData().reduce<Record<string, number>>((acc, p) => {
+    acc[p.category] = (acc[p.category] || 0) + 1;
+    return acc;
+  }, {});
 }

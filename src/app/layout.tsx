@@ -1,16 +1,11 @@
 import type { Metadata } from "next";
-import { Noto_Sans_KR, JetBrains_Mono } from "next/font/google";
+import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import BaseLayout from "@/components/layout/BaseLayout";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
-
-const notoSansKR = Noto_Sans_KR({
-  weight: ["400", "500", "700", "900"],
-  subsets: ["latin"],
-  preload: false,
-  display: "swap",
-  variable: "--font-inter",
-});
+import Header from "@/components/layout/Header";
+import Footer from "@/components/layout/Footer";
+import BackgroundLayers from "@/components/effects/BackgroundLayers";
+import CustomCursor from "@/components/effects/CustomCursor";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -18,22 +13,22 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DevLog",
-  description: "Next.js Blog",
+  title: "daily.log — curiosity, one entry a day",
+  description: "매일 하나의 호기심, 한 줄로 기록합니다.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko" className={`${notoSansKR.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
-      <body className="font-sans antialiased text-slate-800 bg-white selection:bg-blue-100 selection:text-blue-900 dark:bg-slate-900 dark:text-slate-100">
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <BaseLayout>
+    <html lang="ko" className={jetbrainsMono.variable} suppressHydrationWarning>
+      <body>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+          <BackgroundLayers />
+          <CustomCursor />
+          <div className="shell">
+            <Header />
             {children}
-          </BaseLayout>
+            <Footer />
+          </div>
         </ThemeProvider>
       </body>
     </html>

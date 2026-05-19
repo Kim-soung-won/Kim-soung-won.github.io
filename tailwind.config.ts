@@ -2,7 +2,7 @@ import type { Config } from "tailwindcss";
 import typography from '@tailwindcss/typography';
 
 const config: Config = {
-  darkMode: 'selector',
+  darkMode: 'class',
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -11,27 +11,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // TanStack 스타일의 커스텀 컬러 팔레트
-        tanstack: {
-          500: '#ef4444', // Red-500
-          600: '#e11d48', // Rose-600
-          gradientStart: '#FF416C',
-          gradientEnd: '#FF4B2B',
-        },
-        dark: {
-          bg: '#0f172a', // Slate-900 (메인 배경)
-          card: '#1e293b', // Slate-800 (카드 배경)
-          border: '#334155', // Slate-700 (테두리)
-        }
+        ink:      { DEFAULT: '#f4f4f1', 2: '#d1d1cd', muted: '#8a8a85' },
+        bg:       { DEFAULT: '#07100c', 2: '#0a1612', 3: '#0e1c17' },
+        accent:   { DEFAULT: '#10b981', 2: '#facc15', 3: '#34d399' },
       },
       fontFamily: {
-        sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui'],
-        mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular'],
+        display: ['"Pretendard Variable"', 'Pretendard', 'ui-sans-serif', 'system-ui'],
+        sans:    ['"Pretendard Variable"', 'Pretendard', 'ui-sans-serif', 'system-ui'],
+        mono:    ['var(--font-mono)', '"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular'],
       },
     },
   },
-  plugins: [
-    typography,
-  ],
+  plugins: [typography],
 };
 export default config;
